@@ -355,4 +355,44 @@ onMounted(() => {
   display: flex;
   gap: 16px;
 }
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  .el-card__body {
+    padding: 12px;
+  }
+  
+  .notification-card {
+    margin-bottom: 8px;
+  }
+  
+  .notification-card :deep(.el-card__body) {
+    padding: 12px;
+  }
+  
+  .notification-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  
+  .notification-title {
+    font-size: 14px;
+  }
+  
+  .notification-content {
+    font-size: 13px;
+  }
+  
+  .notification-footer {
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+  }
+  
+  .el-dialog {
+    width: 95% !important;
+    margin: 10px auto;
+  }
+}
 </style>

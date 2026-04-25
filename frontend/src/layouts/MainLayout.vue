@@ -1,7 +1,10 @@
 <template>
   <el-container class="main-layout">
-    <!-- 侧边栏 -->
-    <el-aside :width="isCollapse ? '64px' : '200px'" class="sidebar">
+    <!-- 桌面端侧边栏 -->
+    <el-aside 
+      :width="isCollapse ? '64px' : '200px'" 
+      class="sidebar hidden-mobile"
+    >
       <div class="logo">
         <el-icon :size="28" v-if="isCollapse"><School /></el-icon>
         <template v-else>
@@ -28,14 +31,54 @@
       </el-menu>
     </el-aside>
     
+    <!-- 移动端侧边栏抽屉 -->
+    <el-drawer
+      v-model="mobileMenuVisible"
+      :size="200"
+      :with-header="false"
+      direction="ltr"
+      class="mobile-drawer"
+      :destroy-on-close="true"
+    >
+      <div class="mobile-sidebar">
+        <div class="logo">
+          <el-icon :size="24"><School /></el-icon>
+          <span>智慧校园</span>
+        </div>
+        
+        <el-menu
+          :default-active="$route.path"
+          router
+          background-color="#304156"
+          text-color="#bfcbd9"
+          active-text-color="#409EFF"
+          @select="mobileMenuVisible = false"
+        >
+          <el-menu-item v-for="item in menuItems" :key="item.path" :index="item.path">
+            <el-icon>
+              <component :is="item.icon" />
+            </el-icon>
+            <template #title>{{ item.title }}</template>
+          </el-menu-item>
+        </el-menu>
+      </div>
+    </el-drawer>
+    
     <el-container>
       <!-- 顶部栏 -->
       <el-header class="header">
         <div class="header-left">
-          <el-icon class="collapse-btn" @click="toggleCollapse">
+          <!-- 桌面端折叠按钮 -->
+          <el-icon class="collapse-btn hidden-mobile" @click="toggleCollapse">
             <Fold v-if="!isCollapse" />
             <Expand v-else />
           </el-icon>
+          
+          <!-- 移动端菜单按钮 -->
+          <el-icon class="mobile-menu-btn hidden-desktop" @click="mobileMenuVisible = true">
+            <Menu />
+          </el-icon>
+          
           <breadcrumb />
         </div>
         
@@ -58,7 +101,7 @@
           <el-dropdown @command="handleCommand">
             <span class="user-info">
               <el-avatar :size="32" :icon="UserFilled" />
-              <span class="username">{{ userStore.userInfo?.name || userStore.username }}</span>
+              <span class="username hidden-mobile">{{ userStore.userInfo?.name || userStore.username }}</span>
               <el-icon><ArrowDown /></el-icon>
             </span>
             <template #dropdown>
@@ -102,7 +145,8 @@ import {
   UserFilled,
   Fold,
   Expand,
-  ArrowDown
+  ArrowDown,
+  Menu
 } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { getUnreadCount } from '@/api/notification'
@@ -116,6 +160,7 @@ const userStore = useUserStore()
 const isCollapse = ref(false)
 const unreadCount = ref(0)
 const showChangePassword = ref(false)
+const mobileMenuVisible = ref(false)
 let unreadTimer = null
 
 const menuItems = [
@@ -187,6 +232,15 @@ onUnmounted(() => {
   transition: width 0.3s;
 }
 
+.mobile-sidebar {
+  height: 100%;
+  background-color: #304156;
+}
+
+.mobile-sidebar .el-menu {
+  border-right: none;
+}
+
 .logo {
   height: 60px;
   display: flex;
@@ -230,10 +284,22 @@ onUnmounted(() => {
   color: #409EFF;
 }
 
+.mobile-menu-btn {
+  font-size: 24px;
+  cursor: pointer;
+  margin-right: 12px;
+  color: #606266;
+  padding: 8px;
+}
+
+.mobile-menu-btn:hover {
+  color: #409EFF;
+}
+
 .header-right {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
 }
 
 .notification-badge :deep(.el-badge__content) {
@@ -273,5 +339,33 @@ onUnmounted(() => {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  .header {
+    padding: 0 12px;
+  }
+  
+  .header-right {
+    gap: 8px;
+  }
+  
+  .user-info {
+    padding: 0 4px;
+  }
+  
+  .main-content {
+    padding: 8px;
+  }
+}
+
+/* 移动端抽屉样式 */
+:deep(.mobile-drawer .el-drawer__body) {
+  padding: 0;
+}
+
+:deep(.mobile-drawer .el-drawer) {
+  background-color: #304156;
 }
 </style>

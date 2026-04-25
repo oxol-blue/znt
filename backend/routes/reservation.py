@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """场地预约路由模块"""
 from flask import Blueprint, request, jsonify
-from models import Venue, Reservation
+from sqlalchemy.orm import joinedload
+from models import Venue, Reservation, User
 from utils import login_required, teacher_required, db
 from datetime import datetime
 
@@ -17,7 +18,23 @@ def get_venues():
 @login_required
 def get_reservations():
     user_id = request.current_user['user_id']
-    reservations = Reservation.query.filter_by(user_id=user_id).all()
+    role = request.current_user.get('role', 'student')
+    
+    # 使用 joinedload 预加载关联数据，避免 N+1 查询
+    # 需要预加载 user.student 和 user.teacher 来获取申请人姓名
+    query = Reservation.query.options(
+        joinedload(Reservation.venue),
+        joinedload(Reservation.user).joinedload(User.student),
+        joinedload(Reservation.user).joinedload(User.teacher)
+    )
+    
+    # 教师可以看到所有预约记录（用于审批）
+    # 学生只能看到自己的预约记录
+    if role == 'teacher':
+        reservations = query.all()
+    else:
+        reservations = query.filter_by(user_id=user_id).all()
+    
     return jsonify({'code': 200, 'data': {'items': [r.to_dict() for r in reservations]}})
 
 @reservation_bp.route('/', methods=['POST'])

@@ -225,4 +225,62 @@ onMounted(() => {
   color: #909399;
   font-size: 14px;
 }
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  .el-card__body {
+    padding: 16px;
+  }
+  
+  .profile-header {
+    flex-direction: column;
+    text-align: center;
+    gap: 16px;
+  }
+  
+  .profile-info h2 {
+    font-size: 18px;
+  }
+  
+  .info-item {
+    flex-direction: column;
+    gap: 4px;
+  }
+  
+  .info-item .label {
+    font-size: 12px;
+  }
+  
+  .info-item .value {
+    font-size: 14px;
+  }
+  
+  .el-row {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+  
+  .el-col {
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+    margin-bottom: 12px;
+  }
+  
+  .stat-item {
+    padding: 16px;
+  }
+  
+  .stat-value {
+    font-size: 24px;
+  }
+  
+  .stat-label {
+    font-size: 12px;
+  }
+  
+  .el-dialog {
+    width: 95% !important;
+    margin: 10px auto;
+  }
+}
 </style>

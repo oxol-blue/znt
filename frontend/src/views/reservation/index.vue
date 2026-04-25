@@ -350,4 +350,63 @@ onMounted(() => {
 .reservation-list {
   margin-top: 20px;
 }
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  .reservation-page .el-card__body {
+    padding: 12px;
+  }
+  
+  .venue-section {
+    margin-bottom: 12px;
+  }
+  
+  .venue-section h3 {
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
+  
+  .venue-card {
+    margin-bottom: 12px;
+  }
+  
+  .venue-info h4 {
+    font-size: 14px;
+    margin: 8px 0 4px;
+  }
+  
+  .venue-type, .venue-capacity {
+    font-size: 12px;
+  }
+  
+  .reservation-form {
+    margin-top: 12px;
+  }
+  
+  .reservation-form h3 {
+    font-size: 14px;
+    margin-bottom: 12px;
+  }
+  
+  .reservation-form .el-form-item {
+    margin-bottom: 12px;
+  }
+  
+  .reservation-list {
+    margin-top: 12px;
+  }
+  
+  .el-table {
+    font-size: 12px;
+  }
+  
+  .el-table .cell {
+    padding: 4px;
+  }
+  
+  .el-dialog {
+    width: 95% !important;
+    margin: 10px auto;
+  }
+}
 </style>

@@ -232,4 +232,51 @@ onMounted(() => {
 .borrow-card {
   margin-top: 20px;
 }
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  .library-page .el-card__body {
+    padding: 12px;
+  }
+  
+  .search-bar {
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  
+  .search-bar .el-input {
+    width: 100% !important;
+  }
+  
+  .search-bar .el-button {
+    width: 100%;
+  }
+  
+  .el-table {
+    font-size: 12px;
+  }
+  
+  .el-table .cell {
+    padding: 4px;
+  }
+  
+  .pagination {
+    margin-top: 12px;
+  }
+  
+  .el-pagination {
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  
+  .borrow-card {
+    margin-top: 12px;
+  }
+  
+  .borrow-card .el-card__body {
+    padding: 12px;
+  }
+}
 </style>

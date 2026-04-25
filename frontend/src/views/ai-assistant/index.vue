@@ -1,9 +1,9 @@
 <template>
   <div class="ai-assistant-page">
-    <el-row :gutter="20" class="full-height-row">
+    <el-row :gutter="isMobile ? 0 : 20" class="full-height-row">
       <!-- 左侧对话区 -->
-      <el-col :span="16" class="full-height-col">
-        <el-card class="chat-card">
+      <el-col :span="isMobile ? 24 : 16" class="full-height-col">
+        <el-card class="chat-card" :body-style="isMobile ? { padding: '8px' } : {}">
           <template #header>
             <div class="card-header">
               <div>
@@ -93,8 +93,70 @@
         </el-card>
       </el-col>
 
+      <!-- 移动端快捷问题悬浮按钮 -->
+      <el-button
+        v-if="isMobile"
+        class="mobile-quick-btn"
+        type="primary"
+        circle
+        size="large"
+        @click="showQuickDrawer = true"
+      >
+        <el-icon><QuestionFilled /></el-icon>
+      </el-button>
+      
+      <!-- 移动端快捷问题抽屉 -->
+      <el-drawer
+        v-model="showQuickDrawer"
+        title="常见问题"
+        size="80%"
+        direction="btt"
+        :with-header="true"
+        class="mobile-drawer"
+      >
+        <div class="mobile-quick-questions">
+          <el-button
+            v-for="q in quickQuestions"
+            :key="q"
+            type="primary"
+            plain
+            class="mobile-question-btn"
+            @click="askQuestionFromDrawer(q)"
+          >
+            {{ q }}
+          </el-button>
+        </div>
+        
+        <el-divider />
+        
+        <div class="mobile-tips">
+          <h4>💡 智能操作提示</h4>
+          <div class="tip-item">
+            <el-icon color="#409EFF"><Search /></el-icon>
+            <div>
+              <div class="tip-title">查询信息</div>
+              <div class="tip-desc">"我借了哪些书"</div>
+            </div>
+          </div>
+          <div class="tip-item">
+            <el-icon color="#67C23A"><Document /></el-icon>
+            <div>
+              <div class="tip-title">发布通知</div>
+              <div class="tip-desc">教师可发布通知</div>
+            </div>
+          </div>
+          <div class="tip-item">
+            <el-icon color="#E6A23C"><Calendar /></el-icon>
+            <div>
+              <div class="tip-title">办理预约</div>
+              <div class="tip-desc">"预约图书馆座位"</div>
+            </div>
+          </div>
+        </div>
+      </el-drawer>
+      
       <!-- 右侧功能区 -->
-      <el-col :span="8" class="full-height-col right-panel">
+      <el-col :span="8" class="full-height-col right-panel hidden-mobile">
         <!-- 对话记录 -->
         <el-card class="chat-history-card">
           <template #header>
@@ -201,7 +263,8 @@ import {
   Promotion,
   Search,
   Document,
-  Calendar
+  Calendar,
+  QuestionFilled
 } from '@element-plus/icons-vue'
 import { campusAssistant, campusAssistantStream, executeAction, listKnowledgeDocuments, reloadKnowledgeBase as reloadKB } from '@/api/ai'
 import { marked } from 'marked'
@@ -211,6 +274,10 @@ import { useUserStore } from '@/stores/user'
 
 const userStore = useUserStore()
 const userRole = computed(() => userStore.userInfo?.role || 'student')
+
+// 移动端检测
+const isMobile = computed(() => window.innerWidth <= 768)
+const showQuickDrawer = ref(false)
 
 // 从 localStorage 读取对话历史
 const STORAGE_KEY = 'ai_chat_history'
@@ -508,16 +575,72 @@ const askQuestion = (q) => {
   sendMessage()
 }
 
-const confirmBorrow = () => {
-  // 自动填入"确认"并发送
-  inputMessage.value = '确认借阅'
-  sendMessage()
+const askQuestionFromDrawer = (q) => {
+  showQuickDrawer.value = false
+  askQuestion(q)
+}
+
+const confirmBorrow = async () => {
+  // 直接执行操作，不走AI对话
+  if (!pendingAction.value) {
+    ElMessage.warning('没有待执行的操作')
+    return
+  }
+  
+  loading.value = true
+  
+  // 添加执行中提示消息
+  const currentTime = dayjs().format('HH:mm')
+  messages.value.push({
+    role: 'assistant',
+    content: '正在办理中...',
+    time: currentTime,
+    streaming: false
+  })
+  const loadingMsg = messages.value[messages.value.length - 1]
+  
+  try {
+    const result = await executeAction(pendingAction.value)
+    
+    // 替换执行中消息为结果
+    if (result.code === 200) {
+      loadingMsg.content = `✅ ${result.message}`
+      if (result.data?.due_date) {
+        loadingMsg.content += `\n\n应还日期：${result.data.due_date}`
+      }
+      if (result.data?.reservation_id) {
+        loadingMsg.content += `\n\n预约号：${result.data.reservation_id}`
+      }
+      ElMessage.success('办理成功')
+    } else {
+      loadingMsg.content = `❌ ${result.message}`
+      ElMessage.error(result.message || '办理失败')
+    }
+    
+    pendingAction.value = null  // 清除待执行操作
+    saveMessages()
+  } catch (error) {
+    loadingMsg.content = '❌ 操作失败，请稍后重试'
+    ElMessage.error('操作失败')
+    pendingAction.value = null
+    saveMessages()
+  } finally {
+    loading.value = false
+    scrollToBottom()
+  }
 }
 
 const cancelBorrow = () => {
-  // 自动填入"取消"并发送
-  inputMessage.value = '取消'
-  sendMessage()
+  // 取消操作
+  pendingAction.value = null
+  const currentTime = dayjs().format('HH:mm')
+  messages.value.push({
+    role: 'assistant',
+    content: '已取消操作。',
+    time: currentTime
+  })
+  saveMessages()
+  scrollToBottom()
 }
 
 const newChat = () => {
@@ -1037,5 +1160,146 @@ onMounted(() => {
 
 .message.user .borrow-confirm .confirm-hint {
   color: rgba(255, 255, 255, 0.9);
+}
+
+/* 移动端快捷问题悬浮按钮 */
+.mobile-quick-btn {
+  position: fixed;
+  right: 16px;
+  bottom: 100px;
+  z-index: 100;
+  width: 48px;
+  height: 48px;
+  font-size: 20px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* 移动端快捷问题抽屉 */
+.mobile-quick-questions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.mobile-question-btn {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  height: auto;
+  padding: 12px 16px;
+  white-space: normal;
+  line-height: 1.4;
+}
+
+.mobile-tips {
+  padding: 8px 0;
+}
+
+.mobile-tips h4 {
+  margin-bottom: 16px;
+  color: #303133;
+}
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  .ai-assistant-page {
+    height: calc(100vh - 60px);
+    padding: 0;
+  }
+  
+  .chat-card {
+    border-radius: 0;
+    border: none;
+  }
+  
+  .chat-card :deep(.el-card__header) {
+    padding: 12px 16px;
+  }
+  
+  .chat-card :deep(.el-card__body) {
+    padding: 8px;
+  }
+  
+  .card-header .title {
+    font-size: 16px;
+  }
+  
+  .chat-messages {
+    height: calc(100% - 140px);
+    padding: 8px;
+    margin-bottom: 8px;
+  }
+  
+  .message {
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  
+  .message-content {
+    max-width: 85%;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+  
+  .chat-input {
+    padding-top: 8px;
+  }
+  
+  .chat-input :deep(.el-textarea__inner) {
+    min-height: 60px !important;
+  }
+  
+  .input-actions {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  
+  .input-actions .hint {
+    font-size: 11px;
+  }
+  
+  .input-actions .el-button {
+    align-self: flex-end;
+  }
+  
+  /* 借阅确认移动端适配 */
+  .book-item {
+    padding: 6px 8px;
+    font-size: 13px;
+  }
+  
+  .book-title {
+    font-size: 13px;
+  }
+  
+  .confirm-actions {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+  
+  .confirm-actions .el-button {
+    width: 100%;
+  }
+}
+
+/* 小屏幕手机额外适配 */
+@media screen and (max-width: 480px) {
+  .message-content {
+    max-width: 90%;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  
+  .chat-messages {
+    height: calc(100% - 130px);
+  }
+  
+  .message .el-avatar {
+    width: 32px !important;
+    height: 32px !important;
+  }
 }
 </style>

@@ -154,4 +154,36 @@ const handleLogin = async () => {
 .login-tips p {
   margin: 4px 0;
 }
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  .login-box {
+    width: 90%;
+    max-width: 360px;
+    padding: 30px 20px;
+  }
+  
+  .login-header h1 {
+    font-size: 20px;
+  }
+  
+  .login-tips {
+    font-size: 12px;
+  }
+}
+
+@media screen and (max-width: 480px) {
+  .login-box {
+    width: 95%;
+    padding: 24px 16px;
+  }
+  
+  .login-header h1 {
+    font-size: 18px;
+  }
+  
+  .login-header p {
+    font-size: 13px;
+  }
+}
 </style>

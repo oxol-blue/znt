@@ -10,6 +10,101 @@ from datetime import datetime
 from config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL
 from services.rag_service import knowledge_base
 from services.db_tools import db_tools
+from services.conversation_state import conversation_manager
+
+
+# 日期时间解析工具函数
+def parse_date(date_str: str) -> Optional[str]:
+    """解析日期字符串，返回YYYY-MM-DD格式"""
+    from datetime import datetime, timedelta
+    import re
+    
+    today = datetime.now()
+    
+    # 相对日期
+    if date_str == '今天':
+        return today.strftime('%Y-%m-%d')
+    elif date_str == '明天':
+        return (today + timedelta(days=1)).strftime('%Y-%m-%d')
+    elif date_str == '后天':
+        return (today + timedelta(days=2)).strftime('%Y-%m-%d')
+    
+    # 绝对日期格式
+    # YYYY-MM-DD 或 YYYY/MM/DD
+    match = re.match(r'(\d{4})[-/](\d{1,2})[-/](\d{1,2})', date_str)
+    if match:
+        year, month, day = match.groups()
+        return f"{year}-{int(month):02d}-{int(day):02d}"
+    
+    # MM月DD日
+    match = re.match(r'(\d{1,2})月(\d{1,2})日', date_str)
+    if match:
+        month, day = match.groups()
+        return f"{today.year}-{int(month):02d}-{int(day):02d}"
+    
+    return None
+
+
+def parse_time(time_str: str) -> Optional[str]:
+    """解析时间字符串，返回HH:MM格式"""
+    import re
+    
+    # 24小时制 HH:MM 或 HH：MM
+    match = re.match(r'(\d{1,2})[:：](\d{2})', time_str)
+    if match:
+        hour, minute = match.groups()
+        return f"{int(hour):02d}:{minute}"
+    
+    # 12小时制 上午/下午
+    match = re.match(r'(上午|下午|早上|晚上)(\d{1,2})点(?:([\d]{2})分)?', time_str)
+    if match:
+        period, hour, minute = match.groups()
+        hour = int(hour)
+        minute = minute or '00'
+        
+        if period in ['下午', '晚上'] and hour != 12:
+            hour += 12
+        elif period == '上午' and hour == 12:
+            hour = 0
+        
+        return f"{hour:02d}:{minute}"
+    
+    # 纯数字（如 "2点"）
+    match = re.match(r'(\d{1,2})点', time_str)
+    if match:
+        hour = int(match.group(1))
+        return f"{hour:02d}:00"
+    
+    return None
+
+
+def extract_time_range(message: str) -> tuple:
+    """提取时间范围，返回 (start_time, end_time)"""
+    import re
+    
+    # 匹配 "X点到Y点" 或 "X:00到Y:00"
+    patterns = [
+        r'(\d{1,2})[:：]?(\d{2})?\s*到\s*(\d{1,2})[:：]?(\d{2})?',
+        r'(\d{1,2})点(?:到|~|-)(\d{1,2})点',
+        r'下午(\d{1,2})点到下午(\d{1,2})点',
+        r'上午(\d{1,2})点到上午(\d{1,2})点',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, message)
+        if match:
+            groups = match.groups()
+            if len(groups) == 4:  # 有分钟
+                h1, m1, h2, m2 = groups
+                start = f"{int(h1):02d}:{m1 or '00'}"
+                end = f"{int(h2):02d}:{m2 or '00'}"
+            else:  # 只有小时
+                h1, h2 = groups[:2]
+                start = f"{int(h1):02d}:00"
+                end = f"{int(h2):02d}:00"
+            return start, end
+    
+    return None, None
 
 
 class EnhancedDeepSeekService:
@@ -224,10 +319,79 @@ class EnhancedDeepSeekService:
         """
         流式校园智能助手
         返回生成器，逐字输出AI回复
+        支持多轮对话和对话状态管理
         """
-        # 构建消息
+        # 检查对话状态
+        conv_state = conversation_manager.get_state(user_id)
+        
+        # 如果正在收集参数，提取新参数并更新状态
+        if conv_state and conversation_manager.is_collecting(user_id):
+            intent = conv_state['current_intent']
+            params = self._extract_params(user_message, intent)
+            
+            # 更新参数
+            is_complete = conversation_manager.update_params(user_id, params)
+            
+            if is_complete:
+                # 参数收集完成，进入确认阶段
+                collected = conv_state['collected_params']
+                
+                # 查询相关信息用于确认展示
+                if intent == 'create_reservation':
+                    # 查询场地信息
+                    venue_name = collected.get('venue_name', '')
+                    if venue_name:
+                        venues = self._search_venue_by_name(venue_name)
+                        if len(venues) == 1:
+                            collected['venue_id'] = venues[0]['id']
+                            db_data = f"【数据库信息】\n场地信息：\n{json.dumps(venues[0], ensure_ascii=False, indent=2)}"
+                        elif len(venues) > 1:
+                            # 多个匹配，让用户选择
+                            db_data = f"【数据库信息】\n找到多个匹配场地：\n{json.dumps(venues[:3], ensure_ascii=False, indent=2)}"
+                            yield f"data: {json.dumps({'type': 'multiple_venues', 'data': venues[:3]}, ensure_ascii=False)}\n\n"
+                
+                elif intent == 'borrow_book':
+                    # 查询图书信息
+                    book_title = collected.get('book_title', '')
+                    if book_title:
+                        books = self._search_book_by_title(book_title)
+                        if books and len(books) > 0:
+                            available = [b for b in books if b.get('available', 0) > 0]
+                            if available:
+                                collected['book_id'] = available[0]['id']
+                                db_data = f"【数据库信息】\n图书查询结果：\n{json.dumps(available[0], ensure_ascii=False, indent=2)}"
+                
+                # 设置待执行操作
+                conversation_manager.set_pending_action(user_id, intent, collected)
+            else:
+                # 还有缺失参数，提示用户
+                prompt = conversation_manager.get_missing_params_prompt(user_id)
+                yield f"data: {json.dumps({'type': 'content', 'data': prompt}, ensure_ascii=False)}\n\n"
+                yield f"data: [DONE]\n\n"
+                return
+        
+        # 正常意图识别
         intent = self._analyze_intent(user_message)
         context_parts = []
+        
+        # 处理新意图的初始化
+        if intent.get('action') in ['create_reservation', 'borrow_book', 'publish_notification', 'create_task']:
+            params = intent.get('params', {})
+            missing_params = self._get_missing_params(intent['action'], params)
+            
+            if missing_params:
+                # 需要收集更多参数
+                conversation_manager.init_conversation(
+                    user_id=user_id,
+                    intent=intent['action'],
+                    collected_params=params,
+                    missing_params=missing_params
+                )
+                # 提示用户提供缺失参数
+                prompt = conversation_manager.get_missing_params_prompt(user_id)
+                yield f"data: {json.dumps({'type': 'content', 'data': prompt}, ensure_ascii=False)}\n\n"
+                yield f"data: [DONE]\n\n"
+                return
         
         # 获取知识库内容
         kb_context = knowledge_base.get_relevant_context(user_message)
@@ -283,18 +447,30 @@ class EnhancedDeepSeekService:
 - 绝对禁止推荐《三体》《百年孤独》等数据库中不存在的书籍
 - 你只能推荐系统数据查询结果中真实存在的图书
 
-【借书流程】当用户想借书时：
-1. 系统已查询到图书信息，会在【数据库信息】中提供
-2. 向用户展示书名、可借数量、馆藏位置（基于真实数据，禁止编造）
-3. 询问用户"是否确认借阅这本书？"
-4. 用户确认后，系统会办理借阅手续
-5. 不要说自己无法获取库存信息，数据已经在【数据库信息】中
+【角色定位 - 最重要】
+你只是查询助手，只负责查询和展示信息，绝不执行任何操作！
+所有办理、执行、提交等操作都必须由用户在前端界面点击确认按钮完成，不是你来做。
+
+【办理业务流程 - 必须遵守】
+1. 当用户说"帮我借书/预约/发布..."时，你只做一件事：查询相关信息并展示
+2. 展示信息后，明确询问用户："是否确认办理？"
+3. 【严禁】说"正在办理"、"办理中"、"已提交"等暗示你在执行的话
+4. 【严禁】编造办理结果，如"借阅成功"、"预约完成"等
+5. 正确示例："找到《深度学习》，可借4本。请点击下方确认按钮办理借阅。"
+6. 错误示例："正在为您办理...✅借阅成功！" ❌
+
+【正确回复模板】
+- 查询到图书："找到《书名》，作者XXX，可借X本，位于XXX。是否确认借阅？"
+- 查询到场地："找到XXX场地，可容纳XX人，今日可预约时段：XXX。是否确认预约？"
+- 办理成功（用户点击确认后由系统返回结果）："✅办理成功！"
+- 办理失败（用户点击确认后由系统返回结果）："❌办理失败：XXX"
 
 你的职责：
 1. 解答校园相关问题
 2. 基于提供的数据回答用户问题（禁止编造）
 3. 记住之前的对话内容，保持上下文连贯
 4. 保持友好、专业、耐心的态度
+5. 【绝不执行操作】只查询和询问确认
 """
         
         messages = [
@@ -489,13 +665,21 @@ class EnhancedDeepSeekService:
             # 提取日期
             date_match = re.search(r'(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}月\d{1,2}日|明天|后天|今天)', message)
             if date_match:
-                params["date"] = date_match.group(1)
+                parsed_date = parse_date(date_match.group(1))
+                if parsed_date:
+                    params["date"] = parsed_date
             
-            # 提取时间
-            time_match = re.search(r'(\d{1,2}[：:]\d{2}).{0,5}(\d{1,2}[：:]\d{2})', message)
-            if time_match:
-                params["start_time"] = time_match.group(1).replace("：", ":")
-                params["end_time"] = time_match.group(2).replace("：", ":")
+            # 提取时间范围
+            start_time, end_time = extract_time_range(message)
+            if start_time:
+                params["start_time"] = start_time
+            if end_time:
+                params["end_time"] = end_time
+            
+            # 提取场地名称（支持a01、b205等多种格式）
+            venue_match = re.search(r'([a-zA-Z]\d{2,4})\s*(?:自习室|教室|实验室|会议室)?', message, re.IGNORECASE)
+            if venue_match:
+                params["venue_name"] = venue_match.group(1).upper()
             
             # 提取场地类型
             venue_types = {
@@ -507,6 +691,20 @@ class EnhancedDeepSeekService:
             for cn, en in venue_types.items():
                 if cn in message:
                     params["venue_type"] = en
+                    break
+            
+            # 提取用途
+            purpose_keywords = {
+                "学习": "学习",
+                "自习": "学习",
+                "会议": "会议",
+                "开会": "会议",
+                "实验": "实验",
+                "讨论": "小组讨论"
+            }
+            for keyword, purpose in purpose_keywords.items():
+                if keyword in message:
+                    params["purpose"] = purpose
                     break
         
         elif action == "borrow_book":
@@ -623,9 +821,34 @@ class EnhancedDeepSeekService:
                 result["message"] = "只有学生可以预约场地"
                 return result
             
-            # 这里需要更多参数，暂时返回提示
-            result["message"] = "请提供完整的预约信息：场地、日期、时间段和用途"
-            result["needs_more_info"] = True
+            # 获取所有必要参数
+            venue_id = params.get("venue_id")
+            date = params.get("date")
+            start_time = params.get("start_time")
+            end_time = params.get("end_time")
+            purpose = params.get("purpose", "学习")
+            
+            # 检查必需参数
+            if not all([venue_id, date, start_time, end_time]):
+                missing = []
+                if not venue_id: missing.append("场地")
+                if not date: missing.append("日期")
+                if not start_time: missing.append("开始时间")
+                if not end_time: missing.append("结束时间")
+                result["message"] = f"请提供以下信息：{', '.join(missing)}"
+                result["needs_more_info"] = True
+                return result
+            
+            # 执行预约
+            db_result = db_tools.create_reservation(
+                user_id=user_id,
+                venue_id=venue_id,
+                date=date,
+                start_time=start_time,
+                end_time=end_time,
+                purpose=purpose
+            )
+            result.update(db_result)
         
         elif action == "borrow_book":
             if user_role != 'student':
@@ -672,6 +895,60 @@ class EnhancedDeepSeekService:
                 result["message"] = borrow_result.get("message", "借阅失败")
         
         return result
+    
+    def _get_missing_params(self, intent: str, params: Dict) -> List[str]:
+        """
+        获取缺失的必要参数
+        """
+        required_params = {
+            'create_reservation': ['venue_id', 'date', 'start_time', 'end_time', 'purpose'],
+            'borrow_book': ['book_title'],
+            'publish_notification': ['title', 'content'],
+            'create_task': ['title', 'content', 'task_type', 'end_date', 'target_type']
+        }
+        
+        required = required_params.get(intent, [])
+        missing = []
+        
+        for param in required:
+            if not params.get(param):
+                missing.append(param)
+        
+        return missing
+    
+    def _search_venue_by_name(self, venue_name: str) -> List[Dict]:
+        """
+        根据场地名称搜索场地
+        支持模糊匹配
+        """
+        from services.db_tools import db_tools
+        
+        # 查询所有可用场地
+        venues = db_tools.query_venues()
+        
+        if not venues or any("error" in v for v in venues):
+            return []
+        
+        # 模糊匹配
+        matched = []
+        search_name = venue_name.lower().replace('自习室', '').replace('教室', '').replace('实验室', '').replace('会议室', '')
+        
+        for venue in venues:
+            # 精确匹配
+            if search_name in venue.get('name', '').lower():
+                matched.append(venue)
+            # 匹配房间号
+            elif venue.get('room_no', '').lower() == search_name:
+                matched.append(venue)
+        
+        return matched
+    
+    def _search_book_by_title(self, book_title: str) -> List[Dict]:
+        """
+        根据书名搜索图书
+        """
+        from services.db_tools import db_tools
+        return db_tools.query_books(keyword=book_title, limit=5)
     
     def generate_notification(self, title: str, content_type: str, target: str) -> str:
         """辅助生成通知内容"""

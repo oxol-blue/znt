@@ -26,7 +26,7 @@ class Reservation(db.Model):
     
     # 关联
     # venue 关联通过 Venue 模型的 backref='venue' 自动创建
-    # user 关联通过 User 模型的 backref 访问
+    user = db.relationship('User', foreign_keys=[user_id], backref='reservations', lazy='joined')
     
     def to_dict(self):
         # 获取场地名称
@@ -34,16 +34,26 @@ class Reservation(db.Model):
         if hasattr(self, 'venue') and self.venue:
             venue_name = self.venue.name
         
+        # 获取申请人名称 - 从关联的 student 或 teacher 表中获取
+        applicant_name = None
+        if hasattr(self, 'user') and self.user:
+            if self.user.role == 'student' and hasattr(self.user, 'student') and self.user.student:
+                applicant_name = self.user.student.name
+            elif self.user.role == 'teacher' and hasattr(self.user, 'teacher') and self.user.teacher:
+                applicant_name = self.user.teacher.name
+            else:
+                applicant_name = self.user.username  # 备用：使用用户名
+        
         return {
             'id': self.id,
             'venue_id': self.venue_id,
             'venue_name': venue_name,
             'venue': self.venue.to_dict() if hasattr(self, 'venue') and self.venue else None,
             'user_id': self.user_id,
-            'applicant_name': None,  # 简化处理，通过前端或单独查询获取
+            'applicant_name': applicant_name,
             'reserve_date': self.reserve_date.strftime('%Y-%m-%d') if self.reserve_date else None,
-            'start_time': str(self.start_time) if self.start_time else None,
-            'end_time': str(self.end_time) if self.end_time else None,
+            'start_time': str(self.start_time)[:5] if self.start_time else None,
+            'end_time': str(self.end_time)[:5] if self.end_time else None,
             'purpose': self.purpose,
             'participants': self.participants,
             'status': self.status,

@@ -1,0 +1,1 @@
+import{X as o}from"./index-b49eWNP7.js";const s=r=>o.get("/library/books",{params:r}),e=r=>o.post("/library/books",r),a=r=>o.post("/library/borrow",r),b=()=>o.get("/library/borrows");export{s as a,a as b,e as c,b as g};

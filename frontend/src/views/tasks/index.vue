@@ -262,4 +262,33 @@ onMounted(() => {
   align-items: center;
   font-weight: bold;
 }
+
+/* 移动端适配 */
+@media screen and (max-width: 768px) {
+  .el-card__body {
+    padding: 12px;
+  }
+  
+  .el-table {
+    font-size: 12px;
+  }
+  
+  .el-table .cell {
+    padding: 4px;
+  }
+  
+  .el-dialog {
+    width: 95% !important;
+    margin: 10px auto;
+  }
+  
+  .el-form-item {
+    margin-bottom: 12px;
+  }
+  
+  .el-select,
+  .el-date-picker {
+    width: 100%;
+  }
+}
 </style>
