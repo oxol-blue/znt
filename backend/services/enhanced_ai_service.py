@@ -947,7 +947,7 @@ class EnhancedDeepSeekService:
     def _search_venue_by_name(self, venue_name: str) -> List[Dict]:
         """
         根据场地名称搜索场地
-        支持模糊匹配
+        支持模糊匹配和同义词匹配
         """
         from services.db_tools import db_tools
         
@@ -957,19 +957,62 @@ class EnhancedDeepSeekService:
         if not venues or any("error" in v for v in venues):
             return []
         
-        # 模糊匹配
+        # 同义词映射（用户可能说的名称 -> 数据库中的关键词）
+        synonyms = {
+            '会议室': ['会议室', '讨论室', '会议'],
+            '讨论室': ['会议室', '讨论室', '会议'],
+            '自习室': ['自习室', '图书馆'],
+            '教室': ['教室', '多媒体'],
+            '实验室': ['实验室', '计算机']
+        }
+        
         matched = []
-        search_name = venue_name.lower().replace('自习室', '').replace('教室', '').replace('实验室', '').replace('会议室', '')
+        search_lower = venue_name.lower()
+        
+        # 提取数字部分
+        import re
+        number_match = re.search(r'\d+', venue_name)
+        search_number = number_match.group() if number_match else ''
         
         for venue in venues:
-            # 精确匹配
-            if search_name in venue.get('name', '').lower():
+            venue_name_lower = venue.get('name', '').lower()
+            room_no_lower = str(venue.get('room_no', '')).lower()
+            
+            # 1. 直接包含匹配
+            if search_lower in venue_name_lower or search_lower in room_no_lower:
                 matched.append(venue)
-            # 匹配房间号
-            elif venue.get('room_no', '').lower() == search_name:
-                matched.append(venue)
+                continue
+            
+            # 2. 同义词匹配（如用户说"会议室1"，匹配"讨论室-1"）
+            for keyword, related_words in synonyms.items():
+                if keyword in search_lower:
+                    # 检查场地名称是否包含相关词
+                    for related in related_words:
+                        if related in venue_name_lower:
+                            # 同时检查数字是否匹配
+                            if search_number and search_number in venue_name_lower:
+                                matched.append(venue)
+                                break
+                            # 或者检查房间号
+                            elif search_number and search_number in room_no_lower:
+                                matched.append(venue)
+                                break
+                    break
+            
+            # 3. 数字匹配（如果输入主要是数字）
+            if search_number and not matched:
+                if search_number == room_no_lower:
+                    matched.append(venue)
         
-        return matched
+        # 去重
+        seen_ids = set()
+        unique_matched = []
+        for venue in matched:
+            if venue['id'] not in seen_ids:
+                seen_ids.add(venue['id'])
+                unique_matched.append(venue)
+        
+        return unique_matched
     
     def _search_book_by_title(self, book_title: str) -> List[Dict]:
         """
