@@ -861,9 +861,9 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
+  padding: 10px 12px;
   background-color: #f5f7fa;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -872,13 +872,37 @@ onMounted(() => {
   background-color: #ecf5ff;
 }
 
-.history-text {
+.history-item.current {
+  background-color: #e6f2ff;
+  border: 1px solid #409EFF;
+  cursor: default;
+}
+
+.history-item.current:hover {
+  background-color: #e6f2ff;
+}
+
+.history-info {
   flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.history-title {
   font-size: 13px;
-  color: #606266;
+  color: #303133;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.current-tag {
+  flex-shrink: 0;
 }
 
 .history-time {
@@ -886,11 +910,45 @@ onMounted(() => {
   color: #909399;
 }
 
+.history-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.message-count {
+  font-size: 11px;
+  color: #909399;
+  background-color: #fff;
+  padding: 2px 6px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.delete-btn {
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.history-item:hover .delete-btn {
+  opacity: 1;
+}
+
+.delete-btn:hover {
+  color: #f56c6c !important;
+}
+
 .history-empty {
   text-align: center;
   color: #909399;
   font-size: 13px;
-  padding: 20px 0;
+  padding: 30px 0;
+}
+
+.history-hint {
+  font-size: 12px;
+  color: #c0c4cc;
+  margin-top: 8px;
 }
 
 .record-count {

@@ -1,1 +1,0 @@
-import{X as e}from"./index-b49eWNP7.js";const o=()=>e.get("/reservations/venues"),n=()=>e.get("/reservations/"),a=r=>e.post("/reservations/",r),v=(r,s)=>e.post(`/reservations/${r}/approve`,s);export{o as a,v as b,a as c,n as g};

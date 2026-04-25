@@ -255,14 +255,37 @@ const quickLinks = [
 
 const recentNotifications = ref([])
 
-// AI 助手相关状态
-const STORAGE_KEY = 'dashboard_ai_chat'
-const messages = ref([])
+// AI 助手相关状态 - 与独立AI助手页面使用相同的存储键
+const CURRENT_CHAT_KEY = 'ai_current_chat'
+
+// 生成唯一ID
+const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2)
+
+// 默认欢迎消息
+const getWelcomeMessage = () => ({
+  role: 'assistant',
+  content: '您好！我是智慧校园 AI 助手，可以帮您：\n\n📖 查询图书和借阅记录\n📅 查看和办理场地预约\n📢 获取通知和任务信息\n📝 辅助教师发布通知\n\n请问有什么可以帮助您的？',
+  time: dayjs().format('HH:mm'),
+  context_used: false
+})
+
+// 当前会话
+const currentSession = ref({
+  id: generateId(),
+  title: '新对话',
+  messages: [getWelcomeMessage()],
+  createdAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+  updatedAt: dayjs().format('YYYY-MM-DD HH:mm:ss')
+})
+
 const inputMessage = ref('')
 const loading = ref(false)
 const messagesRef = ref()
 const contextUsed = ref(false)
 const pendingAction = ref(null)
+
+// messages 指向当前会话的消息
+const messages = computed(() => currentSession.value.messages)
 
 const userRole = computed(() => userStore.userInfo?.role || 'student')
 
@@ -282,29 +305,35 @@ const quickQuestions = [
   userRole.value === 'teacher' ? '发布关于期中考试的通知' : '图书馆开放时间'
 ]
 
-// 初始化消息
-const initMessages = () => {
-  const saved = localStorage.getItem(STORAGE_KEY)
+// 从 localStorage 加载当前会话
+const loadCurrentSession = () => {
+  const saved = localStorage.getItem(CURRENT_CHAT_KEY)
   if (saved) {
     try {
-      messages.value = JSON.parse(saved)
-      return
+      const session = JSON.parse(saved)
+      currentSession.value = {
+        ...session,
+        messages: session.messages || [getWelcomeMessage()]
+      }
     } catch (e) {
-      console.error('读取历史记录失败:', e)
+      console.error('读取当前对话失败:', e)
     }
   }
-  messages.value = [
-    {
-      role: 'assistant',
-      content: '您好！我是智慧校园 AI 助手，可以帮您：\n\n📖 查询图书和借阅记录\n📅 查看和办理场地预约\n📢 获取通知和任务信息\n📝 辅助教师发布通知\n\n请问有什么可以帮助您的？',
-      time: dayjs().format('HH:mm'),
-      context_used: false
-    }
-  ]
 }
 
-const saveMessages = () => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.value))
+// 保存当前会话
+const saveCurrentSession = () => {
+  currentSession.value.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss')
+  localStorage.setItem(CURRENT_CHAT_KEY, JSON.stringify(currentSession.value))
+}
+
+// 更新会话标题（基于第一条用户消息）
+const updateSessionTitle = () => {
+  const firstUserMsg = currentSession.value.messages.find(m => m.role === 'user')
+  if (firstUserMsg && currentSession.value.title === '新对话') {
+    const title = firstUserMsg.content.slice(0, 20) + (firstUserMsg.content.length > 20 ? '...' : '')
+    currentSession.value.title = title
+  }
 }
 
 const formatMessage = (text) => {
@@ -336,22 +365,30 @@ const handleKeydown = (e) => {
 
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return
-  
+
   const userMsg = inputMessage.value.trim()
   const currentTime = dayjs().format('HH:mm')
-  messages.value.push({
+
+  // 添加用户消息到当前会话
+  currentSession.value.messages.push({
     role: 'user',
     content: userMsg,
     time: currentTime
   })
-  
-  saveMessages()
+
+  // 更新会话标题（如果是第一条用户消息）
+  updateSessionTitle()
+
+  // 保存当前会话
+  saveCurrentSession()
+
   inputMessage.value = ''
   loading.value = true
   contextUsed.value = false
   scrollToBottom()
-  
-  messages.value.push({
+
+  // 添加 AI 响应消息
+  currentSession.value.messages.push({
     role: 'assistant',
     content: '',
     time: dayjs().format('HH:mm'),
@@ -360,15 +397,15 @@ const sendMessage = async () => {
     streaming: true,
     books: null
   })
-  const assistantMsg = messages.value[messages.value.length - 1]
-  
+  const assistantMsg = currentSession.value.messages[currentSession.value.messages.length - 1]
+
   const isConfirm = ['确认', '可以', '好的', '是', '行', '同意'].some(word => userMsg.includes(word))
   const isCancel = ['取消', '不要', '算了', '否', '不'].some(word => userMsg.includes(word))
-  
+
   if (pendingAction.value && isConfirm && !isCancel) {
     assistantMsg.streaming = false
     assistantMsg.content = '正在处理您的请求...'
-    
+
     try {
       const result = await executeAction(pendingAction.value)
       if (result.code === 200) {
@@ -380,33 +417,33 @@ const sendMessage = async () => {
         assistantMsg.content = `❌ ${result.message}`
       }
       pendingAction.value = null
-      saveMessages()
+      saveCurrentSession()
       loading.value = false
       return
     } catch (error) {
       assistantMsg.content = '❌ 操作失败，请稍后重试'
       pendingAction.value = null
-      saveMessages()
+      saveCurrentSession()
       loading.value = false
       return
     }
   }
-  
+
   if (pendingAction.value && isCancel) {
     pendingAction.value = null
     assistantMsg.streaming = false
     assistantMsg.content = '已取消操作。'
-    saveMessages()
+    saveCurrentSession()
     loading.value = false
     return
   }
-  
+
   try {
-    const context = messages.value
+    const context = currentSession.value.messages
       .filter(m => !m.streaming)
       .slice(-20)
       .map(m => ({ role: m.role, content: m.content }))
-    
+
     await new Promise((resolve, reject) => {
       campusAssistantStream(
         { question: userMsg, context },
@@ -421,9 +458,9 @@ const sendMessage = async () => {
             const requestedTitle = bookMatch ? bookMatch[1] : ''
             let availableBook = null
             if (requestedTitle) {
-              availableBook = chunk.data.find(b => 
+              availableBook = chunk.data.find(b =>
                 b.available > 0 && (
-                  b.title === requestedTitle || 
+                  b.title === requestedTitle ||
                   b.title.includes(requestedTitle)
                 )
               )
@@ -453,7 +490,7 @@ const sendMessage = async () => {
         () => {
           assistantMsg.streaming = false
           assistantMsg.time = dayjs().format('HH:mm')
-          saveMessages()
+          saveCurrentSession()
           resolve()
         }
       )
@@ -462,7 +499,7 @@ const sendMessage = async () => {
     assistantMsg.streaming = false
     assistantMsg.content = '抱歉，网络请求失败，请稍后重试。'
     assistantMsg.time = dayjs().format('HH:mm')
-    saveMessages()
+    saveCurrentSession()
   } finally {
     loading.value = false
     scrollToBottom()
@@ -485,16 +522,27 @@ const cancelBorrow = () => {
 }
 
 const newChat = () => {
-  messages.value = [
-    {
-      role: 'assistant',
-      content: '您好！我是智慧校园 AI 助手，可以帮您：\n\n📖 查询图书和借阅记录\n📅 查看和办理场地预约\n📢 获取通知和任务信息\n📝 辅助教师发布通知\n\n请问有什么可以帮助您的？',
-      time: dayjs().format('HH:mm'),
-      context_used: false
-    }
-  ]
+  // 保存当前会话到历史列表（如果有多于欢迎消息的内容）
+  if (currentSession.value.messages.length > 1) {
+    const CHAT_SESSIONS_KEY = 'ai_chat_sessions'
+    const sessions = JSON.parse(localStorage.getItem(CHAT_SESSIONS_KEY) || '[]')
+    sessions.unshift({ ...currentSession.value })
+    if (sessions.length > 50) sessions.pop()
+    localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions))
+  }
+
+  // 创建新会话
+  currentSession.value = {
+    id: generateId(),
+    title: '新对话',
+    messages: [getWelcomeMessage()],
+    createdAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+    updatedAt: dayjs().format('YYYY-MM-DD HH:mm:ss')
+  }
+
   contextUsed.value = false
-  localStorage.removeItem(STORAGE_KEY)
+  pendingAction.value = null
+  saveCurrentSession()
   ElMessage.success('已创建新对话')
 }
 
@@ -537,9 +585,9 @@ const fetchRecentNotifications = async () => {
 }
 
 onMounted(() => {
+  loadCurrentSession()
   fetchStats()
   fetchRecentNotifications()
-  initMessages()
 })
 </script>
 
