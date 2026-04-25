@@ -7,6 +7,7 @@ from flask import Blueprint, request, jsonify, Response, stream_with_context
 from utils import login_required, db
 from services.enhanced_ai_service import enhanced_deepseek_service
 from services.rag_service import knowledge_base
+from services.db_tools import db_tools
 import json
 
 ai_bp = Blueprint('ai', __name__, url_prefix='/api/ai')

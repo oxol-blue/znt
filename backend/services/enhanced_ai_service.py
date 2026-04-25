@@ -4,6 +4,7 @@
 集成知识库 RAG 和数据库工具
 """
 import json
+import re
 import requests
 from typing import List, Dict, Optional, Generator, Callable
 from datetime import datetime
