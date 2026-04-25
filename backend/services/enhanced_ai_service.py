@@ -349,7 +349,7 @@ class EnhancedDeepSeekService:
                         elif len(venues) > 1:
                             # 多个匹配，让用户选择
                             db_data = f"【数据库信息】\n找到多个匹配场地：\n{json.dumps(venues[:3], ensure_ascii=False, indent=2)}"
-                            yield f"data: {json.dumps({'type': 'multiple_venues', 'data': venues[:3]}, ensure_ascii=False)}\n\n"
+                            yield f"找到多个匹配场地，请选择：\n" + "\n".join([f"- {v['name']} (ID:{v['id']})" for v in venues[:3]])
                 
                 elif intent == 'borrow_book':
                     # 查询图书信息
@@ -367,8 +367,7 @@ class EnhancedDeepSeekService:
             else:
                 # 还有缺失参数，逐个询问（使用详细版）
                 prompt = conversation_manager.get_missing_params_prompt(user_id, ask_one_by_one=True)
-                yield f"data: {json.dumps({'type': 'content', 'data': prompt}, ensure_ascii=False)}\n\n"
-                yield f"data: [DONE]\n\n"
+                yield prompt
                 return
         
         # 正常意图识别
@@ -388,8 +387,7 @@ class EnhancedDeepSeekService:
                 elif len(venues) > 1:
                     # 多个匹配，列出选项
                     venue_list = "\n".join([f"- {v['name']} (ID:{v['id']})" for v in venues[:5]])
-                    yield f"data: {json.dumps({'type': 'content', 'data': f"找到多个匹配场地，请选择：\n{venue_list}"}, ensure_ascii=False)}\n\n"
-                    yield f"data: [DONE]\n\n"
+                    yield f"找到多个匹配场地，请选择：\n{venue_list}"
                     return
             
             # 关键修复：如果有书名但没有book_id，尝试搜索获取  
@@ -400,6 +398,10 @@ class EnhancedDeepSeekService:
                     if available:
                         params['book_id'] = available[0]['id']
                         print(f"[DEBUG] 根据书名 '{params['book_title']}' 找到图书ID: {available[0]['id']}")
+            
+            # 兼容意图识别返回的参数名
+            if params.get('venue') and not params.get('venue_name'):
+                params['venue_name'] = params['venue']
             
             missing_params = self._get_missing_params(intent['action'], params)
             
@@ -413,8 +415,7 @@ class EnhancedDeepSeekService:
                 )
                 # 逐个询问缺失参数（使用详细版）
                 prompt = conversation_manager.get_missing_params_prompt(user_id, ask_one_by_one=True)
-                yield f"data: {json.dumps({'type': 'content', 'data': prompt}, ensure_ascii=False)}\n\n"
-                yield f"data: [DONE]\n\n"
+                yield prompt
                 return
         
         # 获取知识库内容
@@ -718,6 +719,17 @@ AI："好的！为您确认预约信息：
                 params["start_time"] = start_time
             if end_time:
                 params["end_time"] = end_time
+            
+            # 如果用户说类似"明天上午十点"但没有结束时间，默认2小时
+            if start_time and not end_time:
+                import datetime
+                start_dt = datetime.datetime.strptime(start_time, "%H:%M")
+                end_dt = start_dt + datetime.timedelta(hours=2)
+                params["end_time"] = end_dt.strftime("%H:%M")
+            
+            # 兼容旧版 time 参数
+            if params.get('start_time') and not params.get('time'):
+                params['time'] = params['start_time']
             
             # 提取场地名称 - 支持多种格式
             # 格式1: 类型+数字（如会议室1、实验室2、自习室3）
