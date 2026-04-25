@@ -378,6 +378,29 @@ class EnhancedDeepSeekService:
         # 处理新意图的初始化
         if intent.get('action') in ['create_reservation', 'borrow_book', 'publish_notification', 'create_task']:
             params = intent.get('params', {})
+            
+            # 关键修复：如果有场地名称但没有venue_id，尝试搜索获取
+            if intent['action'] == 'create_reservation' and params.get('venue_name') and not params.get('venue_id'):
+                venues = self._search_venue_by_name(params['venue_name'])
+                if len(venues) == 1:
+                    params['venue_id'] = venues[0]['id']
+                    print(f"[DEBUG] 根据名称 '{params['venue_name']}' 找到场地ID: {venues[0]['id']}")
+                elif len(venues) > 1:
+                    # 多个匹配，列出选项
+                    venue_list = "\n".join([f"- {v['name']} (ID:{v['id']})" for v in venues[:5]])
+                    yield f"data: {json.dumps({'type': 'content', 'data': f"找到多个匹配场地，请选择：\n{venue_list}"}, ensure_ascii=False)}\n\n"
+                    yield f"data: [DONE]\n\n"
+                    return
+            
+            # 关键修复：如果有书名但没有book_id，尝试搜索获取  
+            if intent['action'] == 'borrow_book' and params.get('book_title') and not params.get('book_id'):
+                books = self._search_book_by_title(params['book_title'])
+                if books and len(books) > 0:
+                    available = [b for b in books if b.get('available', 0) > 0]
+                    if available:
+                        params['book_id'] = available[0]['id']
+                        print(f"[DEBUG] 根据书名 '{params['book_title']}' 找到图书ID: {available[0]['id']}")
+            
             missing_params = self._get_missing_params(intent['action'], params)
             
             if missing_params:
@@ -929,7 +952,7 @@ class EnhancedDeepSeekService:
         获取缺失的必要参数
         """
         required_params = {
-            'create_reservation': ['venue_id', 'date', 'start_time', 'end_time', 'purpose'],
+            'create_reservation': ['date', 'start_time', 'end_time', 'purpose'],
             'borrow_book': ['book_title'],
             'publish_notification': ['title', 'content'],
             'create_task': ['title', 'content', 'task_type', 'end_date', 'target_type']
@@ -941,6 +964,16 @@ class EnhancedDeepSeekService:
         for param in required:
             if not params.get(param):
                 missing.append(param)
+        
+        # 特殊处理：场地预约需要 venue_id 或 venue_name 任一
+        if intent == 'create_reservation':
+            if not params.get('venue_id') and not params.get('venue_name'):
+                missing.append('venue')
+        
+        # 特殊处理：借书需要 book_id 或 book_title 任一
+        if intent == 'borrow_book':
+            if not params.get('book_id') and not params.get('book_title'):
+                missing.append('book_title')
         
         return missing
     
