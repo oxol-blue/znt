@@ -1,0 +1,33 @@
+# 智慧校园系统 - Python依赖
+# 注意：本项目使用 uv 管理依赖，此文件仅供备用
+# 生成命令：uv export --no-dev --format requirements-txt > requirements.txt
+
+# 核心依赖
+flask>=3.0.0
+flask-sqlalchemy>=3.1.0
+flask-cors>=4.0.0
+
+# 数据库
+pymysql>=1.1.0
+cryptography>=42.0.0
+
+# 认证与安全
+pyjwt>=2.8.0
+bcrypt>=4.1.0
+email-validator>=2.1.0
+
+# 工具
+python-dotenv>=1.0.0
+werkzeug>=3.0.0
+
+# 生产服务器
+gunicorn>=21.2.0
+
+# AI与RAG相关
+requests>=2.31.0
+chromadb>=0.4.0
+sentence-transformers>=2.2.0
+pypdf>=3.17.0
+python-docx>=1.1.0
+numpy>=1.24.0
+tqdm>=4.66.0
