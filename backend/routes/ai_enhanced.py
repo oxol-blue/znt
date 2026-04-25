@@ -229,9 +229,14 @@ def campus_assistant_stream():
             
             # 流式调用AI
             print(f"[AI_STREAM] 开始流式生成，db_data长度: {len(db_data) if db_data else 0}")
+            print(f"[AI_STREAM] raw_books数量: {len(raw_books) if raw_books else 0}")
+            chunk_count = 0
             for chunk in enhanced_deepseek_service.campus_assistant_stream(
                 question, user_id, user_role, db_data, context
             ):
+                chunk_count += 1
+                if chunk_count <= 5:  # 只打印前5个chunk
+                    print(f"[AI_STREAM] chunk {chunk_count}: {chunk[:50] if len(chunk) > 50 else chunk}...")
                 yield f"data: {json.dumps({'type': 'content', 'data': chunk}, ensure_ascii=False)}\n\n"
             
             yield f"data: [DONE]\n\n"
