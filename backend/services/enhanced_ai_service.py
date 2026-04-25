@@ -7,7 +7,7 @@ import json
 import re
 import requests
 from typing import List, Dict, Optional, Generator, Callable
-from datetime import datetime
+from datetime import datetime, timedelta
 from config import DEEPSEEK_API_KEY, DEEPSEEK_API_BASE, DEEPSEEK_MODEL
 from services.rag_service import knowledge_base
 from services.db_tools import db_tools
@@ -15,6 +15,41 @@ from services.conversation_state import conversation_manager
 
 
 # 日期时间解析工具函数
+# 中文数字转阿拉伯数字映射
+CHINESE_DIGITS = {
+    '零': 0, '一': 1, '二': 2, '两': 2, '三': 3, '四': 4,
+    '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10,
+    '十一': 11, '十二': 12, '十三': 13, '十四': 14, '十五': 15,
+    '十六': 16, '十七': 17, '十八': 18, '十九': 19, '二十': 20,
+    '二十一': 21, '二十二': 22, '二十三': 23, '二十四': 24
+}
+
+def chinese_to_arabic(chinese_str: str) -> int:
+    """
+    将中文数字转换为阿拉伯数字
+    支持：零到二十四
+    """
+    chinese_str = chinese_str.strip()
+    if chinese_str in CHINESE_DIGITS:
+        return CHINESE_DIGITS[chinese_str]
+    
+    # 处理 "十一"、"十二"、"二十" 等组合
+    if '十' in chinese_str:
+        parts = chinese_str.split('十')
+        if len(parts) == 2:
+            if parts[0] == '':  # "十"、"十一"
+                tens = 1
+            else:
+                tens = CHINESE_DIGITS.get(parts[0], 0)
+            if parts[1] == '':  # "十"
+                ones = 0
+            else:
+                ones = CHINESE_DIGITS.get(parts[1], 0)
+            return tens * 10 + ones
+    
+    return 0
+
+
 def parse_date(date_str: str) -> Optional[str]:
     """解析日期字符串，返回YYYY-MM-DD格式"""
     from datetime import datetime, timedelta
@@ -70,10 +105,39 @@ def parse_time(time_str: str) -> Optional[str]:
         
         return f"{hour:02d}:{minute}"
     
+    # 新增：12小时制 + 中文数字（如"上午十点"）
+    match = re.match(r'(上午|下午|早上|晚上)([零一二三四五六七八九十]+)点(?:([零一二三四五六七八九十]+)分)?', time_str)
+    if match:
+        period, hour_str, minute_str = match.groups()
+        hour = chinese_to_arabic(hour_str)
+        if minute_str:
+            minute = chinese_to_arabic(minute_str)
+            minute_str = f"{minute:02d}"
+        else:
+            minute_str = '00'
+        
+        if period in ['下午', '晚上'] and hour != 12:
+            hour += 12
+        elif period == '上午' and hour == 12:
+            hour = 0
+        
+        return f"{hour:02d}:{minute_str}"
+    
     # 纯数字（如 "2点"）
     match = re.match(r'(\d{1,2})点', time_str)
     if match:
         hour = int(match.group(1))
+        return f"{hour:02d}:00"
+    
+    # 新增：纯中文数字（如 "十点"）
+    match = re.match(r'([零一二三四五六七八九十]+)点(?:([零一二三四五六七八九十]+)分)?', time_str)
+    if match:
+        hour_str = match.group(1)
+        minute_str = match.group(2)
+        hour = chinese_to_arabic(hour_str)
+        if minute_str:
+            minute = chinese_to_arabic(minute_str)
+            return f"{hour:02d}:{minute:02d}"
         return f"{hour:02d}:00"
     
     return None
@@ -89,21 +153,71 @@ def extract_time_range(message: str) -> tuple:
         r'(\d{1,2})点(?:到|~|-)(\d{1,2})点',
         r'下午(\d{1,2})点到下午(\d{1,2})点',
         r'上午(\d{1,2})点到上午(\d{1,2})点',
+        # 新增中文数字模式
+        r'上午([零一二三四五六七八九十]+)点到下午([零一二三四五六七八九十]+)点',
+        r'上午([零一二三四五六七八九十]+)点到上午([零一二三四五六七八九十]+)点',
+        r'下午([零一二三四五六七八九十]+)点到下午([零一二三四五六七八九十]+)点',
+        r'([零一二三四五六七八九十]+)点(?:到|~|-)([零一二三四五六七八九十]+)点',
+        # 新增：上午/下午X点到Y点（第二个时间没有上午/下午前缀）
+        r'(上午|下午)([零一二三四五六七八九十]+)点到([零一二三四五六七八九十]+)点',
+        r'(上午|下午)(\d{1,2})点到(\d{1,2})点',
     ]
     
     for pattern in patterns:
         match = re.search(pattern, message)
         if match:
             groups = match.groups()
-            if len(groups) == 4:  # 有分钟
-                h1, m1, h2, m2 = groups
-                start = f"{int(h1):02d}:{m1 or '00'}"
-                end = f"{int(h2):02d}:{m2 or '00'}"
-            else:  # 只有小时
-                h1, h2 = groups[:2]
-                start = f"{int(h1):02d}:00"
-                end = f"{int(h2):02d}:00"
-            return start, end
+            # 检查是否是 上午/下午X点到Y点 模式（3个group，第一个是period）
+            if len(groups) == 3 and groups[0] in ['上午', '下午']:
+                period, start_str, end_str = groups
+                # 判断是中文数字还是阿拉伯数字
+                if any(c in start_str for c in '零一二三四五六七八九十'):
+                    start_hour = chinese_to_arabic(start_str)
+                    end_hour = chinese_to_arabic(end_str)
+                else:
+                    start_hour = int(start_str)
+                    end_hour = int(end_str)
+                
+                # 转换时间
+                if period == '下午' and start_hour != 12:
+                    start_hour += 12
+                start = f"{start_hour:02d}:00"
+                
+                # 结束时间假设也是同一时段（下午）
+                if period == '下午' and end_hour != 12:
+                    end_hour += 12
+                end = f"{end_hour:02d}:00"
+                return start, end
+            
+            # 检查是否包含中文数字
+            elif any(c in groups[0] for c in '零一二三四五六七八九十'):
+                # 中文数字模式
+                if len(groups) >= 4 and groups[1] and any(c in groups[1] for c in '零一二三四五六七八九十\d'):  # 有分钟
+                    h1_str, m1_str, h2_str, m2_str = groups[:4]
+                    h1 = chinese_to_arabic(h1_str)
+                    m1 = chinese_to_arabic(m1_str)
+                    h2 = chinese_to_arabic(h2_str)
+                    m2 = chinese_to_arabic(m2_str)
+                    start = f"{h1:02d}:{m1:02d}"
+                    end = f"{h2:02d}:{m2:02d}"
+                else:  # 只有小时
+                    h1_str, h2_str = groups[:2]
+                    h1 = chinese_to_arabic(h1_str)
+                    h2 = chinese_to_arabic(h2_str)
+                    start = f"{h1:02d}:00"
+                    end = f"{h2:02d}:00"
+                return start, end
+            else:
+                # 阿拉伯数字模式
+                if len(groups) == 4:  # 有分钟
+                    h1, m1, h2, m2 = groups
+                    start = f"{int(h1):02d}:{m1 or '00'}"
+                    end = f"{int(h2):02d}:{m2 or '00'}"
+                else:  # 只有小时
+                    h1, h2 = groups[:2]
+                    start = f"{int(h1):02d}:00"
+                    end = f"{int(h2):02d}:00"
+                return start, end
     
     return None, None
 
@@ -325,13 +439,103 @@ class EnhancedDeepSeekService:
         # 检查对话状态
         conv_state = conversation_manager.get_state(user_id)
         
+        # 如果在确认阶段，检查用户是否确认或取消
+        if conv_state and conversation_manager.is_confirming(user_id):
+            # 检查确认词
+            confirm_patterns = ['确认', '是的', '确定', '没问题', '就这样', '可以了', '同意', '好的', '好', '行', 'ok']
+            cancel_patterns = ['取消', '不要', '算了', '否', '不借', '不预约', '不发布']
+            
+            is_confirm = any(word in user_message for word in confirm_patterns)
+            is_cancel = any(word in user_message for word in cancel_patterns)
+            
+            if is_confirm:
+                # 用户确认，执行操作
+                pending = conv_state.get('pending_action', {})
+                action = pending.get('action')
+                params = pending.get('params', {})
+                
+                if action:
+                    result = self._execute_action(action, params, user_id, user_role)
+                    if result.get('success'):
+                        yield f"✅ {result.get('message', '操作成功')}"
+                        if result.get('data', {}).get('due_date'):
+                            yield f"\n\n应还日期：{result['data']['due_date']}"
+                        if result.get('data', {}).get('reservation_id'):
+                            yield f"\n\n预约号：{result['data']['reservation_id']}"
+                    else:
+                        yield f"❌ {result.get('message', '操作失败')}"
+                    
+                    conversation_manager.clear_state(user_id)
+                    return
+            
+            elif is_cancel:
+                # 用户取消
+                yield "已取消操作。"
+                conversation_manager.clear_state(user_id)
+                return
+        
         # 如果正在收集参数，提取新参数并更新状态
         if conv_state and conversation_manager.is_collecting(user_id):
             intent = conv_state['current_intent']
-            params = self._extract_params(user_message, intent)
             
-            # 更新参数
-            is_complete = conversation_manager.update_params(user_id, params)
+            # 【关键修复】意图切换检测：检查是否与当前intent完全不相关
+            new_intent = self._analyze_intent(user_message)
+            new_action = new_intent.get('action')
+            new_category = new_intent.get('category', '')
+            
+            # 检查是否是明确的切换意图
+            intent_switch = False
+            if intent == 'create_reservation' and new_action in ['borrow_book', 'complete_task', 'publish_notification']:
+                intent_switch = True
+            elif intent == 'borrow_book' and new_action in ['create_reservation', 'complete_task', 'publish_notification']:
+                intent_switch = True
+            elif new_category == 'book' and intent != 'borrow_book' and new_action is None:
+                # 借书查询类意图
+                intent_switch = True
+            elif new_category == 'notification' and intent not in ['publish_notification']:
+                intent_switch = True
+            elif new_category == 'task' and intent != 'create_task':
+                intent_switch = True
+            
+            # 检查是否是明确的退出词
+            cancel_patterns = [
+                r'^取消|^算了|^不约了|^不借了|^不预约了|^不发布了|^算了|^不搞了',
+            ]
+            is_cancel = any(re.search(p, user_message, re.IGNORECASE) for p in cancel_patterns)
+            
+            if intent_switch or is_cancel:
+                print(f"[INTENT_SWITCH] 检测到意图切换: 当前={intent}, 新意图={new_action or new_category}, 清除状态")
+                conversation_manager.clear_state(user_id)
+                # 不return，继续执行正常的意图识别流程
+            else:
+                params = self._extract_params(user_message, intent)
+                
+                # 【关键修复】如果正则提取不到参数，尝试智能提取
+                if not params:
+                    next_missing = conversation_manager.get_next_missing_param(user_id)
+                    if next_missing:
+                        param_name = next_missing[0]
+                        smart_params = self._smart_extract_param(user_message, param_name, intent)
+                        if smart_params:
+                            params = smart_params
+                            print(f"[SMART_EXTRACT] 智能提取到参数: {smart_params}")
+                
+                # 【关键修复】补充 venue_id：如果有 venue_name 但没有 venue_id，尝试搜索获取
+                if intent == 'create_reservation' and params.get('venue_name') and not params.get('venue_id'):
+                    venues = self._search_venue_by_name(params['venue_name'])
+                    if len(venues) == 1:
+                        params['venue_id'] = venues[0]['id']
+                        print(f"[VENUE_FIX] 根据名称 '{params['venue_name']}' 找到 venue_id: {venues[0]['id']}")
+                
+                # 【关键修复】补充 end_time：如果只有 start_time 没有 end_time，默认+2小时
+                if intent == 'create_reservation' and params.get('start_time') and not params.get('end_time'):
+                    start_dt = datetime.strptime(params['start_time'], "%H:%M")
+                    end_dt = start_dt + timedelta(hours=2)
+                    params['end_time'] = end_dt.strftime("%H:%M")
+                    print(f"[TIME_FIX] 自动补充 end_time: {params['end_time']} (start_time: {params['start_time']})")
+                
+                # 更新参数
+                is_complete = conversation_manager.update_params(user_id, params)
             
             if is_complete:
                 # 参数收集完成，进入确认阶段
@@ -364,11 +568,94 @@ class EnhancedDeepSeekService:
                 
                 # 设置待执行操作
                 conversation_manager.set_pending_action(user_id, intent, collected)
+                
+                # 发送 pending_action 给前端，用于显示确认UI
+                pending_action_data = {
+                    'action': intent,
+                    'params': collected
+                }
+                yield f"__PENDING_ACTION__:{json.dumps(pending_action_data, ensure_ascii=False)}"
+                
+                # 【关键修复】生成确认摘要文本并返回，不再走AI流式生成
+                if intent == 'create_reservation':
+                    venue = collected.get('venue_name', collected.get('venue_id', '场地'))
+                    date = collected.get('date', '')
+                    start_time = collected.get('start_time', '')
+                    end_time = collected.get('end_time', '')
+                    purpose = collected.get('purpose', '')
+                    yield f"好的！为您确认预约信息：\n- 场地：{venue}\n- 日期：{date}\n- 时间：{start_time}-{end_time}\n- 用途：{purpose}\n\n请回复【确认】完成预约。"
+                elif intent == 'borrow_book':
+                    book_title = collected.get('book_title', '')
+                    yield f"好的！确认借阅《{book_title}》。请回复【确认】完成借阅。"
+                
+                return  # 关键：停止，不再走AI流式生成
             else:
-                # 还有缺失参数，逐个询问（使用详细版）
-                prompt = conversation_manager.get_missing_params_prompt(user_id, ask_one_by_one=True)
-                yield prompt
-                return
+                # 【关键修复】检查用户是否在询问相关查询（如场地列表、图书列表等）
+                if not params:
+                    # 检查是否是场地查询
+                    venue_query_patterns = [
+                        r'有什么场地|有哪些场地|有什么教室|有哪些教室|有什么会议室|有哪些会议室|有什么实验室|有哪些实验室',
+                        r'场地列表|教室列表|会议室列表|实验室列表|可选场地|可用场地',
+                        r'可以预约哪里|可以预约什么场地|能预约哪里|能用什么场地'
+                    ]
+                    is_venue_query = any(re.search(p, user_message, re.IGNORECASE) for p in venue_query_patterns)
+                    
+                    if is_venue_query and intent == 'create_reservation':
+                        # 查询可用场地
+                        venues = self._search_venue_by_name('')
+                        if venues:
+                            venue_list = "\n".join([f"- {v['name']} ({v.get('type', '场地')})" for v in venues[:10]])
+                            yield f"可用的场地有：\n{venue_list}\n\n请告诉我您想预约哪个场地？"
+                        else:
+                            yield "抱歉，暂时没有可用的场地信息。\n\n请告诉我您想预约哪个场地？"
+                        return
+                    
+                    # 检查是否是图书查询（在借书流程中）
+                    book_query_patterns = [
+                        r'有什么书|有哪些书|可以借什么|有什么图书|有哪些图书|推荐.*书',
+                        r'书列表|图书列表|可借图书| available books'
+                    ]
+                    is_book_query = any(re.search(p, user_message, re.IGNORECASE) for p in book_query_patterns)
+                    
+                    if is_book_query and intent == 'borrow_book':
+                        # 查询可借图书
+                        books = self._search_book_by_title('')
+                        available_books = [b for b in books if b.get('available', 0) > 0]
+                        if available_books:
+                            book_list = "\n".join([f"- 《{b['title']}》{b.get('author', '')} (可借{b['available']}本)" for b in available_books[:10]])
+                            yield f"可借阅的图书有：\n{book_list}\n\n请告诉我您想借阅哪本书？"
+                        else:
+                            yield "抱歉，暂时没有可借的图书。\n\n请告诉我您想借阅哪本书？"
+                        return
+                
+                # 【关键修复】如果提取不到参数，检查是否是无关消息
+                if not params:
+                    # 检查用户消息是否是明显的查询或无关内容
+                    query_patterns = [
+                        r'^你好|^您好|^嗨|^在吗|^在不在',
+                        r'我借了什么书|我的借阅|借了什么|借了哪些|在借',
+                        r'可以借什么|有哪些书|有什么书|推荐.*书',
+                        r'我的预约|预约记录|有什么预约',
+                        r'我的通知|未读通知|有什么通知',
+                        r'我的任务|待办|有什么任务',
+                        r'^查询|^查看|^显示|^列出',
+                    ]
+                    is_unrelated = any(re.search(pattern, user_message, re.IGNORECASE) for pattern in query_patterns)
+                    
+                    if is_unrelated:
+                        print(f"[ESCAPE] 检测到无关消息，清除状态: {user_message}")
+                        conversation_manager.clear_state(user_id)
+                        # 不return，继续执行正常意图识别
+                    else:
+                        # 正常参数收集流程
+                        prompt = conversation_manager.get_missing_params_prompt(user_id, ask_one_by_one=True)
+                        yield prompt
+                        return
+                else:
+                    # 有参数但被update_params过滤了，继续正常询问
+                    prompt = conversation_manager.get_missing_params_prompt(user_id, ask_one_by_one=True)
+                    yield prompt
+                    return
         
         # 正常意图识别
         intent = self._analyze_intent(user_message)
@@ -377,6 +664,43 @@ class EnhancedDeepSeekService:
         # 处理新意图的初始化
         if intent.get('action') in ['create_reservation', 'borrow_book', 'publish_notification', 'create_task']:
             params = intent.get('params', {})
+            
+            # 【关键修复】用 _extract_params 从原始消息中提取完整参数（修正AI返回的键名）
+            extracted = self._extract_params(user_message, intent['action'])
+            if extracted:
+                # 用 extracted 补充/覆盖 params（extracted 的键名更准确）
+                for key, value in extracted.items():
+                    if value:
+                        params[key] = value  # 直接覆盖，确保键名正确
+                
+                # 【关键修复】处理AI意图识别的非标准键名映射
+                if params.get('resource') and not params.get('venue_name'):
+                    # AI返回 resource 而非 venue_name，需要映射
+                    venue_name = params['resource']
+                    # 移除错误的键
+                    if 'resource' in params:
+                        del params['resource']
+                    # 提取场地名称
+                    venue_match = re.search(r'(会议室|实验室|自习室|教室)', venue_name)
+                    if venue_match:
+                        # 查找具体场地（如"会议室-1"）
+                        venue_id_match = re.search(r'(\d+)', venue_name)
+                        if venue_id_match:
+                            venue_name = f"{venue_match.group(1)}-{venue_id_match.group(1)}"
+                        else:
+                            venue_name = venue_match.group(1)
+                    params['venue_name'] = venue_name
+                
+                if params.get('time') and not params.get('date'):
+                    # AI返回 time 而非 date，需要解析
+                    time_str = params['time']
+                    if '明天' in time_str or '今日' in time_str:
+                        params['date'] = parse_date(time_str)
+                    # 移除错误的键
+                    if 'time' in params and not params.get('start_time'):
+                        del params['time']
+                
+                print(f"[EXTRACT_FIX] 补充参数: {extracted}, 最终: {params}")
             
             # 关键修复：如果有场地名称但没有venue_id，尝试搜索获取
             if intent['action'] == 'create_reservation' and params.get('venue_name') and not params.get('venue_id'):
@@ -474,15 +798,21 @@ class EnhancedDeepSeekService:
 
 【角色定位 - 最重要】
 你只是查询助手，只负责查询和展示信息，绝不执行任何操作！
-所有办理、执行、提交等操作都必须由用户在前端界面点击确认按钮完成，不是你来做。
+所有办理、执行、提交等操作都必须由用户回复【确认】完成，不是你来做。
+
+【绝对禁止 - 违反会导致系统错误】
+- 绝对禁止说"✅办理成功"、"✅借阅成功"、"✅预约成功"、"✅发布成功"
+- 绝对禁止说"办理完成"、"已完成"、"已提交"、"已办理"
+- 绝对禁止说"正在办理"、"办理中"、"已为您办理"等暗示你在执行的话
+- 绝对禁止编造任何办理结果！
 
 【办理业务流程 - 必须遵守】
 1. 当用户说"帮我借书/预约/发布..."时，系统会逐个询问所需参数（日期、时间等）
 2. 你的角色是确认理解用户需求，并友好地询问下一个参数
 3. 每次只询问一个参数，收到回答后确认并继续询问下一个
 4. 所有参数收集完成后，展示完整信息供用户确认
-5. 【严禁】说"正在办理"、"办理中"、"已提交"等暗示你在执行的话
-6. 【严禁】编造办理结果，如"借阅成功"、"预约完成"等
+5. 【必须】提示用户"请回复【确认】完成办理"或"是否确认？"
+6. 【严禁】在用户点击确认前说任何"成功"、"完成"的话
 
 【参数收集对话示例 - 必须遵循】
 用户："预约a02自习室"
@@ -505,9 +835,8 @@ AI："好的！为您确认预约信息：
 【正确回复模板】
 - 收集参数中："好的！您想[操作]。请告诉我[参数]是[询问语]？"
 - 确认收到参数："好的，[已收集的信息]。请告诉我[下一个参数]是[询问语]？"
-- 参数收集完成：展示完整信息，询问"是否确认[操作]？"
-- 办理成功（用户点击确认后）："✅办理成功！"
-- 办理失败（用户点击确认后）："❌办理失败：XXX"
+- 参数收集完成：展示完整信息，提示"请回复【确认】完成[操作]"
+- 【严禁AI说】"✅办理成功"、"✅借阅成功"、"✅预约成功" - 这些话只能由系统在用户点击确认后显示
 
 你的职责：
 1. 解答校园相关问题
@@ -720,11 +1049,25 @@ AI："好的！为您确认预约信息：
             if end_time:
                 params["end_time"] = end_time
             
+            # 【关键修复】如果 extract_time_range 失败，尝试用 parse_time 提取单个时间点
+            if not start_time:
+                # 尝试解析 "上午10点" 或 "10点" 格式
+                time_match = re.search(r'(上午|下午|早上|晚上)?([零一二三四五六七八九十\d]{1,3})点', message)
+                if time_match:
+                    period, hour_str = time_match.groups()
+                    single_time = parse_time(f"{period or ''}{hour_str}点")
+                    if single_time:
+                        params["start_time"] = single_time
+                        # 默认结束时间 = 开始时间 + 2小时
+                        start_dt = datetime.strptime(single_time, "%H:%M")
+                        end_dt = start_dt + timedelta(hours=2)
+                        params["end_time"] = end_dt.strftime("%H:%M")
+                        print(f"[TIME_EXTRACT] 从消息中提取单个时间点: {single_time}-{params['end_time']}")
+            
             # 如果用户说类似"明天上午十点"但没有结束时间，默认2小时
             if start_time and not end_time:
-                import datetime
-                start_dt = datetime.datetime.strptime(start_time, "%H:%M")
-                end_dt = start_dt + datetime.timedelta(hours=2)
+                start_dt = datetime.strptime(start_time, "%H:%M")
+                end_dt = start_dt + timedelta(hours=2)
                 params["end_time"] = end_dt.strftime("%H:%M")
             
             # 兼容旧版 time 参数
@@ -785,9 +1128,7 @@ AI："好的！为您确认预约信息：
                     params["purpose"] = purpose
                     break
             
-            # 如果用途仍为空，设置默认值
-            if not params.get("purpose"):
-                params["purpose"] = "学习"
+            # 注意：不再设置默认用途，让AI询问用户
         
         elif action == "borrow_book":
             # 提取书名（匹配书名号《》或引号）
@@ -799,6 +1140,100 @@ AI："好的！为您确认预约信息：
                 title_match = re.search(r'(?:借|查|找)(?:一?[本个]?)[书]?(.+?)(?:的?)$', message)
                 if title_match:
                     params["book_title"] = title_match.group(1).strip()
+        
+        return params
+    
+    def _smart_extract_param(self, message: str, param_name: str, intent: str = None) -> Dict:
+        """
+        根据缺失的参数类型，智能提取参数
+        用于在正则提取失败时，根据上下文智能提取
+        """
+        import re
+        params = {}
+        
+        if param_name in ['start_time', 'end_time']:
+            # 全力提取时间
+            # 尝试提取时间范围
+            start_time, end_time = extract_time_range(message)
+            if start_time:
+                params['start_time'] = start_time
+            if end_time:
+                params['end_time'] = end_time
+            
+            # 如果只提取到一个时间，作为开始时间
+            if not start_time and not end_time:
+                # 尝试提取单个时间
+                time_match = re.search(r'(上午|下午|早上|晚上)?([零一二三四五六七八九十\d]{1,3})点', message)
+                if time_match:
+                    period, hour_str = time_match.groups()
+                    hour = chinese_to_arabic(hour_str) if any(c in hour_str for c in '零一二三四五六七八九十') else int(hour_str)
+                    if period in ['下午', '晚上'] and hour != 12:
+                        hour += 12
+                    time_val = f"{hour:02d}:00"
+                    if param_name == 'start_time':
+                        params['start_time'] = time_val
+                        # 自动补充 end_time
+                        start_dt = datetime.strptime(time_val, "%H:%M")
+                        end_dt = start_dt + timedelta(hours=2)
+                        params['end_time'] = end_dt.strftime("%H:%M")
+                    elif param_name == 'end_time':
+                        params['end_time'] = time_val
+        
+        elif param_name == 'date':
+            # 提取日期
+            date_match = re.search(r'(\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}月\d{1,2}日|明天|后天|今天|大后天)', message)
+            if date_match:
+                parsed_date = parse_date(date_match.group(1))
+                if parsed_date:
+                    params['date'] = parsed_date
+        
+        elif param_name == 'purpose':
+            # 直接作为用途（只要不是疑问句）
+            if not any(q in message for q in ['?', '？', '吗', '呢', '什么', '哪', '多少']):
+                # 过滤掉常见的非用途词
+                non_purpose = ['你好', '好的', '谢谢', '再见', '嗯', '哦', '啊']
+                if message.strip() not in non_purpose:
+                    params['purpose'] = message.strip()
+        
+        elif param_name in ['venue', 'venue_id'] and intent == 'create_reservation':
+            # 尝试提取场地名称
+            # 格式1: 类型+数字
+            venue_match = re.search(r'(会议室|实验室|自习室|教室)([零一二三四五六七八九十\d]{1,4})', message)
+            if venue_match:
+                type_name = venue_match.group(1)
+                num_str = venue_match.group(2)
+                if any(c in num_str for c in '零一二三四五六七八九十'):
+                    num = chinese_to_arabic(num_str)
+                else:
+                    num = int(num_str)
+                venue_name = f"{type_name}{num}"
+                params['venue_name'] = venue_name
+                venues = self._search_venue_by_name(venue_name)
+                if len(venues) == 1:
+                    params['venue_id'] = venues[0]['id']
+            else:
+                # 格式2: 字母+数字
+                venue_match = re.search(r'([a-zA-Z][零一二三四五六七八九十\d]{1,4})', message, re.IGNORECASE)
+                if venue_match:
+                    venue_name = venue_match.group(1).upper()
+                    params['venue_name'] = venue_name
+                    venues = self._search_venue_by_name(venue_name)
+                    if len(venues) == 1:
+                        params['venue_id'] = venues[0]['id']
+                else:
+                    # 格式3: 纯数字
+                    venue_match = re.search(r'([零一二三四五六七八九十\d]{3,4})', message)
+                    if venue_match:
+                        num_str = venue_match.group(1)
+                        if any(c in num_str for c in '零一二三四五六七八九十'):
+                            num = chinese_to_arabic(num_str)
+                        else:
+                            num = int(num_str)
+                        venue_name = str(num)
+                        params['venue_name'] = venue_name
+                        venues = self._search_venue_by_name(venue_name)
+                        if len(venues) == 1:
+                            params['venue_id'] = venues[0]['id']
         
         return params
     
@@ -849,7 +1284,6 @@ AI："好的！为您确认预约信息：
             return f"您的预约记录（共{len(reservations)}条）：\n{json.dumps(reservations, ensure_ascii=False, indent=2)}"
         
         elif category == "venue":
-            from datetime import datetime
             date = datetime.now().strftime("%Y-%m-%d")
             venues = db_tools.query_venues(date=date)
             if any("error" in v for v in venues):

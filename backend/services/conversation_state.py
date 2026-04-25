@@ -94,6 +94,11 @@ class ConversationState:
             if key in state['missing_params']:
                 state['missing_params'].remove(key)
         
+        # 特殊处理：venue_name 或 venue_id 满足 venue 的要求
+        if 'venue' in state['missing_params']:
+            if 'venue_name' in state['collected_params'] or 'venue_id' in state['collected_params']:
+                state['missing_params'].remove('venue')
+        
         # 检查是否收集完成
         is_complete = len(state['missing_params']) == 0
         
@@ -191,8 +196,8 @@ class ConversationState:
             'start_time': ('开始时间', '从几点开始'),
             'end_time': ('结束时间', '到几点结束'),
             'purpose': ('用途', '用途是什么'),
-            'venue': ('场地', '请确认场地'),
-            'venue_id': ('场地', '请确认场地'),
+            'venue': ('场地', '是什么'),
+            'venue_id': ('场地', '是什么'),
             'book_title': ('书名', '书名是什么'),
             'title': ('标题', '标题是什么'),
             'content': ('内容', '内容是什么'),

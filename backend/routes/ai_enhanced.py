@@ -174,11 +174,18 @@ def campus_assistant_stream():
     intent = enhanced_deepseek_service._analyze_intent(question)
     print(f"[AI_STREAM] 意图: {intent}")
     
-    # 关键修复：新查询开始时清除之前的对话状态
-    # 只有明确的是/否确认操作才保留状态
-    if intent.get('action') not in ['confirm', 'cancel']:
-        conversation_manager.clear_state(user_id)
-        print(f"[AI_STREAM] 清除旧对话状态")
+    # 【关键修复】智能判断是否需要清除状态
+    is_collecting = conversation_manager.is_collecting(user_id)
+    intent_action = intent.get('action')
+    
+    # 只有在用户发起全新操作意图时才清除
+    # 逃逸机制已在 enhanced_ai_service.py 的 campus_assistant_stream 中实现
+    if not is_collecting:
+        if intent_action in ['create_reservation', 'borrow_book', 'publish_notification', 'create_task']:
+            conversation_manager.clear_state(user_id)
+            print(f"[AI_STREAM] 清除旧对话状态（新意图: {intent_action}）")
+    else:
+        print(f"[AI_STREAM] 保持对话状态（正在收集参数）")
     
     # 清除之前的待执行操作（避免污染）
     if intent.get('category') in ['borrow', 'book', 'reservation', 'notification', 'task'] and not intent.get('action'):
@@ -215,8 +222,8 @@ def campus_assistant_stream():
             # 发送意图识别结果
             yield f"data: {json.dumps({'type': 'intent', 'data': intent}, ensure_ascii=False)}\n\n"
             
-            # 发送图书原始数据（如果有）
-            if raw_books:
+            # 发送图书原始数据（仅在用户明确要借书时，用于确认按钮）
+            if raw_books and intent.get('action') == 'borrow_book':
                 yield f"data: {json.dumps({'type': 'books', 'data': raw_books}, ensure_ascii=False)}\n\n"
             
             # 发送数据库数据标记
@@ -231,10 +238,22 @@ def campus_assistant_stream():
             print(f"[AI_STREAM] 开始流式生成，db_data长度: {len(db_data) if db_data else 0}")
             print(f"[AI_STREAM] raw_books数量: {len(raw_books) if raw_books else 0}")
             chunk_count = 0
+            pending_action_sent = False
             for chunk in enhanced_deepseek_service.campus_assistant_stream(
                 question, user_id, user_role, db_data, context
             ):
                 chunk_count += 1
+                # 检查是否是 pending_action 标记
+                if chunk.startswith('__PENDING_ACTION__:'):
+                    try:
+                        action_data = json.loads(chunk[19:])  # 去掉前缀
+                        yield f"data: {json.dumps({'type': 'pending_action', 'data': action_data}, ensure_ascii=False)}\n\n"
+                        pending_action_sent = True
+                        print(f"[AI_STREAM] 发送 pending_action: {action_data}")
+                    except json.JSONDecodeError:
+                        print(f"[AI_STREAM] pending_action 解析失败: {chunk}")
+                    continue
+                
                 if chunk_count <= 5:  # 只打印前5个chunk
                     print(f"[AI_STREAM] chunk {chunk_count}: {chunk[:50] if len(chunk) > 50 else chunk}...")
                 yield f"data: {json.dumps({'type': 'content', 'data': chunk}, ensure_ascii=False)}\n\n"
@@ -279,6 +298,45 @@ def execute_action():
             
             # 执行借阅
             result = db_tools.create_borrow(user_id=user_id, book_id=book_id)
+            return jsonify({
+                'code': 200 if result.get('success') else 400,
+                'message': result.get('message', '操作完成'),
+                'data': result
+            })
+        
+        elif action == 'create_reservation':
+            if user_role != 'student':
+                return jsonify({'code': 403, 'message': '只有学生可以预约场地'}), 403
+            
+            venue_id = params.get('venue_id')
+            date = params.get('date')
+            start_time = params.get('start_time')
+            end_time = params.get('end_time')
+            purpose = params.get('purpose', '学习')
+            
+            # 验证必要参数
+            missing = []
+            if not venue_id: missing.append('场地ID')
+            if not date: missing.append('日期')
+            if not start_time: missing.append('开始时间')
+            if not end_time: missing.append('结束时间')
+            
+            if missing:
+                missing_str = '、'.join(missing)
+                return jsonify({
+                    'code': 400, 
+                    'message': f'缺少必要的预约参数：{missing_str}'
+                }), 400
+            
+            # 执行预约
+            result = db_tools.create_reservation(
+                user_id=user_id,
+                venue_id=venue_id,
+                date=date,
+                start_time=start_time,
+                end_time=end_time,
+                purpose=purpose
+            )
             return jsonify({
                 'code': 200 if result.get('success') else 400,
                 'message': result.get('message', '操作完成'),

@@ -32,27 +32,6 @@
               <div class="message-content">
                 <div class="message-text" v-html="formatMessage(msg.content)"></div>
                 <span v-if="msg.streaming" class="streaming-cursor">▊</span>
-                <!-- 确认借阅按钮 -->
-                <div v-if="msg.books && msg.books.length > 0 && !msg.streaming" class="borrow-confirm">
-                  <el-divider />
-                  <div class="book-list">
-                    <!-- 如果用户明确指定了书名，只显示匹配的那本或第一本会借的 -->
-                    <div v-for="book in (pendingAction?.bookTitle ? 
-                      msg.books.filter(b => b.title === pendingAction.bookTitle || b.available > 0).slice(0, 1) : 
-                      msg.books.slice(0, 3))" :key="book.id" class="book-item">
-                      <el-icon><Document /></el-icon>
-                      <span class="book-title">《{{ book.title }}》</span>
-                      <el-tag :type="book.available > 0 ? 'success' : 'danger'" size="small">
-                        {{ book.available > 0 ? `可借 ${book.available} 本` : '暂无库存' }}
-                      </el-tag>
-                    </div>
-                  </div>
-                  <div v-if="msg.books.some(b => b.available > 0)" class="confirm-actions">
-                    <span class="confirm-hint">是否确认借阅《{{ pendingAction?.bookTitle || '该书' }}》？</span>
-                    <el-button type="primary" size="small" @click="confirmBorrow">确认借阅</el-button>
-                    <el-button size="small" @click="cancelBorrow">取消</el-button>
-                  </div>
-                </div>
                 <div class="message-meta">
                   <span class="message-time">{{ msg.time }}</span>
                   <el-tag v-if="msg.source === 'quick_reply'" type="info" size="small">快速回复</el-tag>
@@ -507,10 +486,9 @@ const sendMessage = async () => {
   })
   const assistantMsg = messages.value[messages.value.length - 1]
   
-  // 检查是否是确认操作 - 更严格的判断
-  // 只认明确的确认词，排除"可以""好的"等常见词
-  const isConfirm = ['确认', '是的', '确定', '没问题', '就这样', '可以了'].some(word => userMsg.includes(word))
-  const isCancel = ['取消', '不要', '算了', '否', '不借', '不预约', '不发布'].some(word => userMsg.includes(word))
+  // 检查是否是确认操作 - 支持多种确认方式
+  const isConfirm = ['确认', '是的', '确定', '没问题', '就这样', '可以了', '同意', '好的', '好', '行', 'OK', 'ok', '要', '借', '预约'].some(word => userMsg.includes(word))
+  const isCancel = ['取消', '不要', '算了', '否', '不借', '不预约', '不发布', '不'].some(word => userMsg.includes(word))
   
   // 如果有待执行的操作且用户确认
   if (pendingAction.value && isConfirm && !isCancel) {
@@ -524,6 +502,9 @@ const sendMessage = async () => {
         assistantMsg.content = `✅ ${result.message}`
         if (result.data?.due_date) {
           assistantMsg.content += `\n\n应还日期：${result.data.due_date}`
+        }
+        if (result.data?.reservation_id) {
+          assistantMsg.content += `\n\n预约号：${result.data.reservation_id}`
         }
       } else {
         assistantMsg.content = `❌ ${result.message}`
@@ -606,6 +587,11 @@ const sendMessage = async () => {
           } else if (chunk.type === 'data_source') {
             // 数据来源：database 或 knowledge_base
             assistantMsg.data_source = chunk.data
+          } else if (chunk.type === 'pending_action') {
+            // 收到待执行操作（参数收集完成）
+            assistantMsg.pendingAction = chunk.data
+            pendingAction.value = chunk.data
+            console.log('[AI] 收到 pending_action:', chunk.data)
           } else if (chunk.type === 'content') {
             // 流式内容 - 直接追加并触发更新
             assistantMsg.content += chunk.data
@@ -703,8 +689,55 @@ const confirmBorrow = async () => {
   }
 }
 
-const cancelBorrow = () => {
-  // 取消操作
+const confirmReservation = async () => {
+  // 确认场地预约
+  if (!pendingAction.value) {
+    ElMessage.warning('没有待执行的操作')
+    return
+  }
+  
+  loading.value = true
+  
+  // 添加执行中提示消息
+  const currentTime = dayjs().format('HH:mm')
+  messages.value.push({
+    role: 'assistant',
+    content: '正在处理预约...',
+    time: currentTime,
+    streaming: false
+  })
+  const loadingMsg = messages.value[messages.value.length - 1]
+  
+  try {
+    const result = await executeAction(pendingAction.value)
+    
+    // 替换执行中消息为结果
+    if (result.code === 200) {
+      loadingMsg.content = `✅ ${result.message}`
+      if (result.data?.reservation_id) {
+        loadingMsg.content += `\n\n预约号：${result.data.reservation_id}`
+      }
+      ElMessage.success('预约成功')
+    } else {
+      loadingMsg.content = `❌ ${result.message}`
+      ElMessage.error(result.message || '预约失败')
+    }
+    
+    pendingAction.value = null  // 清除待执行操作
+    saveMessages()
+  } catch (error) {
+    loadingMsg.content = '❌ 操作失败，请稍后重试'
+    ElMessage.error('操作失败')
+    pendingAction.value = null
+    saveMessages()
+  } finally {
+    loading.value = false
+    scrollToBottom()
+  }
+}
+
+const cancelAction = () => {
+  // 取消操作（通用）
   pendingAction.value = null
   const currentTime = dayjs().format('HH:mm')
   messages.value.push({
@@ -714,6 +747,11 @@ const cancelBorrow = () => {
   })
   saveMessages()
   scrollToBottom()
+}
+
+const cancelBorrow = () => {
+  // 取消借阅操作（调用通用的取消）
+  cancelAction()
 }
 
 // 加载指定会话
