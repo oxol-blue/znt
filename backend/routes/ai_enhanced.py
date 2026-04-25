@@ -169,9 +169,20 @@ def campus_assistant_stream():
     user_role = request.current_user.get('role', 'student')
     print(f"[AI_STREAM] 用户ID: {user_id}, 角色: {user_role}, 上下文长度: {len(context)}")
     
-    # 先在请求上下文中执行所有数据库查询
+    # 先分析意图
     intent = enhanced_deepseek_service._analyze_intent(question)
     print(f"[AI_STREAM] 意图: {intent}")
+    
+    # 关键修复：新查询开始时清除之前的对话状态
+    # 只有明确的是/否确认操作才保留状态
+    if intent.get('action') not in ['confirm', 'cancel']:
+        conversation_manager.clear_state(user_id)
+        print(f"[AI_STREAM] 清除旧对话状态")
+    
+    # 清除之前的待执行操作（避免污染）
+    if intent.get('category') in ['borrow', 'book', 'reservation', 'notification', 'task'] and not intent.get('action'):
+        # 纯查询意图，确保没有残留的pending action
+        print(f"[AI_STREAM] 纯查询意图，确保状态干净")
     
     kb_context = knowledge_base.get_relevant_context(question)
     

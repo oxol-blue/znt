@@ -157,27 +157,57 @@
       
       <!-- 右侧功能区 -->
       <el-col :span="8" class="full-height-col right-panel hidden-mobile">
-        <!-- 对话记录 -->
+        <!-- 对话历史列表 -->
         <el-card class="chat-history-card">
           <template #header>
             <div class="card-header">
-              <span>📝 对话记录</span>
-              <span class="record-count">{{ allHistory.length }} 条历史提问</span>
+              <span>📝 对话历史</span>
+              <span class="record-count">{{ chatSessions.length }} 个历史对话</span>
             </div>
           </template>
           <div class="chat-history">
+            <!-- 当前对话（置顶） -->
+            <div class="history-item current">
+              <el-icon size="14"><ChatDotRound /></el-icon>
+              <div class="history-info">
+                <span class="history-title" :title="currentSession.title">
+                  <el-tag size="small" type="primary" class="current-tag">当前</el-tag>
+                  {{ currentSession.title }}
+                </span>
+                <span class="history-time">{{ dayjs(currentSession.updatedAt).format('MM-DD HH:mm') }}</span>
+              </div>
+              <span class="message-count">{{ currentSession.messages.length }} 条</span>
+            </div>
+
+            <!-- 历史会话列表 -->
             <div
-              v-for="(item, index) in allHistory"
-              :key="index"
+              v-for="session in chatSessions"
+              :key="session.id"
               class="history-item"
-              @click="inputMessage = item.content"
+              @click="loadSession(session.id)"
             >
               <el-icon size="14"><ChatDotRound /></el-icon>
-              <span class="history-text" :title="item.content">{{ item.content }}</span>
-              <span class="history-time">{{ item.time }}</span>
+              <div class="history-info">
+                <span class="history-title" :title="session.title">{{ session.title }}</span>
+                <span class="history-time">{{ dayjs(session.updatedAt).format('MM-DD HH:mm') }}</span>
+              </div>
+              <div class="history-actions">
+                <span class="message-count">{{ session.messages.length }} 条</span>
+                <el-button
+                  type="danger"
+                  link
+                  size="small"
+                  class="delete-btn"
+                  @click="deleteSession(session.id, $event)"
+                >
+                  <el-icon><Delete /></el-icon>
+                </el-button>
+              </div>
             </div>
-            <div v-if="allHistory.length === 0" class="history-empty">
-              暂无对话记录
+
+            <div v-if="chatSessions.length === 0" class="history-empty">
+              暂无历史对话
+              <div class="history-hint">点击"新建对话"开始新的聊天</div>
             </div>
           </div>
         </el-card>
@@ -264,7 +294,8 @@ import {
   Search,
   Document,
   Calendar,
-  QuestionFilled
+  QuestionFilled,
+  Delete
 } from '@element-plus/icons-vue'
 import { campusAssistant, campusAssistantStream, executeAction, listKnowledgeDocuments, reloadKnowledgeBase as reloadKB } from '@/api/ai'
 import { marked } from 'marked'
@@ -279,66 +310,89 @@ const userRole = computed(() => userStore.userInfo?.role || 'student')
 const isMobile = computed(() => window.innerWidth <= 768)
 const showQuickDrawer = ref(false)
 
-// 从 localStorage 读取对话历史
-const STORAGE_KEY = 'ai_chat_history'
-const HISTORY_KEY = 'ai_chat_all_history'
+// Storage Keys
+const CURRENT_CHAT_KEY = 'ai_current_chat'      // 当前对话
+const CHAT_SESSIONS_KEY = 'ai_chat_sessions'    // 历史会话列表
+const MAX_HISTORY = 50                          // 最大保存会话数
 
-const loadMessages = () => {
-  const saved = localStorage.getItem(STORAGE_KEY)
+// 生成唯一ID
+const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2)
+
+// 默认欢迎消息
+const getWelcomeMessage = () => ({
+  role: 'assistant',
+  content: '您好！我是智慧校园 AI 助手，可以帮您：\n\n📖 查询图书和借阅记录\n📅 查看和办理场地预约\n📢 获取通知和任务信息\n📝 辅助教师发布通知\n\n请问有什么可以帮助您的？',
+  time: dayjs().format('HH:mm'),
+  context_used: false
+})
+
+// 当前会话
+const currentSession = ref({
+  id: generateId(),
+  title: '新对话',
+  messages: [getWelcomeMessage()],
+  createdAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+  updatedAt: dayjs().format('YYYY-MM-DD HH:mm:ss')
+})
+
+// 会话历史列表
+const chatSessions = ref([])
+
+// 从 localStorage 加载当前会话
+const loadCurrentSession = () => {
+  const saved = localStorage.getItem(CURRENT_CHAT_KEY)
   if (saved) {
     try {
-      return JSON.parse(saved)
+      const session = JSON.parse(saved)
+      currentSession.value = {
+        ...session,
+        messages: session.messages || [getWelcomeMessage()]
+      }
     } catch (e) {
-      console.error('读取历史记录失败:', e)
+      console.error('读取当前对话失败:', e)
     }
   }
-  return [
-    {
-      role: 'assistant',
-      content: '您好！我是智慧校园 AI 助手，可以帮您：\n\n📖 查询图书和借阅记录\n📅 查看和办理场地预约\n📢 获取通知和任务信息\n📝 辅助教师发布通知\n\n请问有什么可以帮助您的？',
-      time: dayjs().format('HH:mm'),
-      context_used: false
-    }
-  ]
 }
 
-const messages = ref(loadMessages())
-
-// 所有历史提问记录（跨对话保留）
-const allHistory = ref([])
-
-// 加载所有历史提问
-const loadAllHistory = () => {
-  const saved = localStorage.getItem(HISTORY_KEY)
+// 从 localStorage 加载会话历史
+const loadChatSessions = () => {
+  const saved = localStorage.getItem(CHAT_SESSIONS_KEY)
   if (saved) {
     try {
-      allHistory.value = JSON.parse(saved)
+      chatSessions.value = JSON.parse(saved)
     } catch (e) {
-      console.error('读取历史提问失败:', e)
+      console.error('读取会话历史失败:', e)
     }
   }
 }
 
-// 保存对话历史到 localStorage
+// 保存当前会话
+const saveCurrentSession = () => {
+  currentSession.value.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss')
+  localStorage.setItem(CURRENT_CHAT_KEY, JSON.stringify(currentSession.value))
+}
+
+// 保存会话历史列表
+const saveChatSessions = () => {
+  localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(chatSessions.value))
+}
+
+// 更新会话标题（基于第一条用户消息）
+const updateSessionTitle = () => {
+  const firstUserMsg = currentSession.value.messages.find(m => m.role === 'user')
+  if (firstUserMsg && currentSession.value.title === '新对话') {
+    // 截取前20个字符作为标题
+    const title = firstUserMsg.content.slice(0, 20) + (firstUserMsg.content.length > 20 ? '...' : '')
+    currentSession.value.title = title
+  }
+}
+
+// 兼容旧代码，messages 指向当前会话的消息
+const messages = computed(() => currentSession.value.messages)
+
+// 兼容旧代码
 const saveMessages = () => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(messages.value))
-}
-
-// 保存历史提问到 localStorage
-const saveHistory = (question, time) => {
-  // 避免重复添加相同的问题
-  const exists = allHistory.value.some(h => h.content === question)
-  if (!exists) {
-    allHistory.value.unshift({
-      content: question,
-      time: time
-    })
-    // 只保留最近50条历史
-    if (allHistory.value.length > 50) {
-      allHistory.value = allHistory.value.slice(0, 50)
-    }
-    localStorage.setItem(HISTORY_KEY, JSON.stringify(allHistory.value))
-  }
+  saveCurrentSession()
 }
 
 const inputMessage = ref('')
@@ -404,23 +458,41 @@ const handleKeydown = (e) => {
 
 const sendMessage = async () => {
   if (!inputMessage.value.trim()) return
-  
+
   const userMsg = inputMessage.value.trim()
   const currentTime = dayjs().format('HH:mm')
-  messages.value.push({
+
+  // 添加用户消息到当前会话
+  currentSession.value.messages.push({
     role: 'user',
     content: userMsg,
     time: currentTime
   })
-  
-  // 保存用户消息到当前对话和历史记录
-  saveMessages()
-  saveHistory(userMsg, currentTime)
-  
+
+  // 更新会话标题（如果是第一条用户消息）
+  updateSessionTitle()
+
+  // 保存当前会话
+  saveCurrentSession()
+
   inputMessage.value = ''
   loading.value = true
   contextUsed.value = false
   scrollToBottom()
+  
+  // 关键修复：检测查询类问题，清除之前残留的pendingAction
+  const queryPatterns = [
+    /我借了什么书|我的借阅|借了什么|借了哪些|在借/,  // 借阅查询
+    /可以借什么|有哪些书|有什么书|推荐.*书/,  // 图书查询
+    /我的预约|预约记录|有什么预约/,  // 预约查询
+    /我的通知|未读通知|有什么通知/,  // 通知查询
+    /我的任务|待办|有什么任务/  // 任务查询
+  ]
+  const isQuery = queryPatterns.some(pattern => pattern.test(userMsg))
+  if (isQuery && pendingAction.value) {
+    console.log('[AI] 检测到查询意图，清除待执行操作')
+    pendingAction.value = null
+  }
   
   // 添加一个空的助手消息，用于流式填充
   // 必须通过数组索引获取响应式代理，否则修改不会触发 Vue 更新
@@ -435,9 +507,10 @@ const sendMessage = async () => {
   })
   const assistantMsg = messages.value[messages.value.length - 1]
   
-  // 检查是否是确认操作
-  const isConfirm = ['确认', '可以', '好的', '是', '行', '同意'].some(word => userMsg.includes(word))
-  const isCancel = ['取消', '不要', '算了', '否', '不'].some(word => userMsg.includes(word))
+  // 检查是否是确认操作 - 更严格的判断
+  // 只认明确的确认词，排除"可以""好的"等常见词
+  const isConfirm = ['确认', '是的', '确定', '没问题', '就这样', '可以了'].some(word => userMsg.includes(word))
+  const isCancel = ['取消', '不要', '算了', '否', '不借', '不预约', '不发布'].some(word => userMsg.includes(word))
   
   // 如果有待执行的操作且用户确认
   if (pendingAction.value && isConfirm && !isCancel) {
@@ -643,19 +716,61 @@ const cancelBorrow = () => {
   scrollToBottom()
 }
 
-const newChat = () => {
-  messages.value = [
-    {
-      role: 'assistant',
-      content: '您好！我是智慧校园 AI 助手，可以帮您：\n\n📖 查询图书和借阅记录\n📅 查看和办理场地预约\n📢 获取通知和任务信息\n📝 辅助教师发布通知\n\n请问有什么可以帮助您的？',
-      time: dayjs().format('HH:mm'),
-      context_used: false
+// 加载指定会话
+const loadSession = (sessionId) => {
+  const session = chatSessions.value.find(s => s.id === sessionId)
+  if (session) {
+    // 先将当前会话保存到历史（如果有对话内容）
+    if (currentSession.value.messages.length > 1) {
+      chatSessions.value.unshift({ ...currentSession.value })
+      saveChatSessions()
     }
-  ]
+    // 加载选中的会话为当前会话
+    currentSession.value = {
+      ...session,
+      messages: [...session.messages]
+    }
+    saveCurrentSession()
+    // 从历史列表中移除（避免重复）
+    chatSessions.value = chatSessions.value.filter(s => s.id !== sessionId)
+    saveChatSessions()
+    ElMessage.success('已加载历史对话')
+  }
+}
+
+// 新建对话
+const newChat = () => {
+  // 保存当前会话到历史列表（如果有多于欢迎消息的内容）
+  if (currentSession.value.messages.length > 1) {
+    chatSessions.value.unshift({ ...currentSession.value })
+    // 限制历史记录数量
+    if (chatSessions.value.length > MAX_HISTORY) {
+      chatSessions.value = chatSessions.value.slice(0, MAX_HISTORY)
+    }
+    saveChatSessions()
+  }
+
+  // 创建新会话
+  currentSession.value = {
+    id: generateId(),
+    title: '新对话',
+    messages: [getWelcomeMessage()],
+    createdAt: dayjs().format('YYYY-MM-DD HH:mm:ss'),
+    updatedAt: dayjs().format('YYYY-MM-DD HH:mm:ss')
+  }
+
   contextUsed.value = false
-  // 只清除当前对话，保留历史提问记录
-  localStorage.removeItem(STORAGE_KEY)
+  pendingAction.value = null
+  saveCurrentSession()
   ElMessage.success('已创建新对话')
+}
+
+// 删除历史会话
+const deleteSession = (sessionId, event) => {
+  event.stopPropagation()
+  chatSessions.value = chatSessions.value.filter(s => s.id !== sessionId)
+  saveChatSessions()
+  ElMessage.success('已删除历史对话')
 }
 
 const fetchKnowledgeDocuments = async () => {
@@ -687,9 +802,10 @@ const reloadKnowledgeBase = async () => {
 }
 
 onMounted(() => {
+  loadCurrentSession()
+  loadChatSessions()
   scrollToBottom()
   fetchKnowledgeDocuments()
-  loadAllHistory()
 })
 </script>
 
