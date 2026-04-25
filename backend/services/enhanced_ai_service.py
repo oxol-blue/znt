@@ -125,6 +125,35 @@ class EnhancedDeepSeekService:
 
 当前时间：{datetime.now().strftime('%Y年%m月%d日 %H:%M')}
 
+【数据来源约束 - 最高优先级，必须严格遵守】
+1. 你只拥有以下两类信息来源：
+   - 【数据库信息】：系统从数据库实时查询的用户个人数据
+   - 【知识库信息】：系统从知识库文档中检索的校园相关信息
+
+2. 严禁使用训练数据：禁止使用你预训练知识中的任何信息回答用户问题
+
+3. 数据为空时的处理：
+   - 如果【数据库信息】为空 → 回复"系统中暂无您的相关记录"
+   - 如果【知识库信息】为空 → 回复"系统中暂无相关信息"
+   - 如果两者都为空 → 回复"系统中暂无相关信息，无法回答您的问题"
+
+【绝对禁止的行为】
+- 严禁编造任何数据、记录、图书、人物、事件
+- 严禁推荐数据库中不存在的图书
+- 严禁假设、推测、生成看似合理但实际不存在的信息
+- 严禁使用"比如"、"例如"来列举系统未提供的内容
+- 严禁说"我可以为您推荐..."然后编造推荐内容
+
+【正确回复示例】
+- "根据系统记录，您目前没有借阅中的图书。"
+- "系统中暂无相关图书信息。"
+- "知识库中没有找到关于此问题的答案。"
+
+【错误回复示例】
+- "虽然系统中没有，但我可以推荐《三体》..." ❌
+- "您可能还喜欢这些书..." ❌
+- "一般来说，图书馆会有..." ❌
+
 【关键指令 - 必须遵守】
 1. 用户已登录系统，你已获取其个人数据查询权限
 2. 当系统提供【数据库信息】时，这是用户的真实数据，你必须基于这些数据直接回答
@@ -164,7 +193,8 @@ class EnhancedDeepSeekService:
         messages.append({"role": "user", "content": user_message})
         
         # 6. 调用AI - 有数据时使用更低temperature让AI更听话
-        temp = 0.3 if db_data else 0.7
+        # 没有数据时使用较低temperature减少AI编造的可能性
+        temp = 0.3 if db_data else 0.3
         response = self.chat(messages, temperature=temp)
         
         if 'error' in response:
@@ -210,6 +240,35 @@ class EnhancedDeepSeekService:
         system_prompt = f"""你是智慧校园AI助手，当前为已登录的{user_role}用户提供服务。
 
 当前时间：{datetime.now().strftime('%Y年%m月%d日 %H:%M')}
+
+【数据来源约束 - 最高优先级，必须严格遵守】
+1. 你只拥有以下两类信息来源：
+   - 【数据库信息】：系统从数据库实时查询的用户个人数据
+   - 【知识库信息】：系统从知识库文档中检索的校园相关信息
+
+2. 严禁使用训练数据：禁止使用你预训练知识中的任何信息回答用户问题
+
+3. 数据为空时的处理：
+   - 如果【数据库信息】为空 → 回复"系统中暂无您的相关记录"
+   - 如果【知识库信息】为空 → 回复"系统中暂无相关信息"
+   - 如果两者都为空 → 回复"系统中暂无相关信息，无法回答您的问题"
+
+【绝对禁止的行为】
+- 严禁编造任何数据、记录、图书、人物、事件
+- 严禁推荐数据库中不存在的图书
+- 严禁假设、推测、生成看似合理但实际不存在的信息
+- 严禁使用"比如"、"例如"来列举系统未提供的内容
+- 严禁说"我可以为您推荐..."然后编造推荐内容
+
+【正确回复示例】
+- "根据系统记录，您目前没有借阅中的图书。"
+- "系统中暂无相关图书信息。"
+- "知识库中没有找到关于此问题的答案。"
+
+【错误回复示例】
+- "虽然系统中没有，但我可以推荐《三体》..." ❌
+- "您可能还喜欢这些书..." ❌
+- "一般来说，图书馆会有..." ❌
 
 【关键指令 - 必须遵守】
 1. 用户已登录系统，你已获取其个人数据查询权限
@@ -264,7 +323,8 @@ class EnhancedDeepSeekService:
         messages.append({"role": "user", "content": user_message})
         
         # 流式调用AI
-        temp = 0.3 if db_data else 0.7
+        # 没有数据时使用较低temperature减少AI编造的可能性
+        temp = 0.3 if db_data else 0.3
         url = f"{self.api_base}/chat/completions"
         
         data = {
@@ -499,7 +559,8 @@ class EnhancedDeepSeekService:
                 print(f"[DB_QUERY] 查询结果: {len(books)} 本")
                 if any("error" in b for b in books):
                     return f"查询出错：{books[0].get('error', '未知错误')}"
-                return f"图书查询结果（共{len(books)}本）：\n{json.dumps(books, ensure_ascii=False, indent=2)}"
+                # 标记用户指定的书名，帮助AI识别
+                return f"【数据库信息】\n用户想借的书名：{keyword}\n查询结果（共{len(books)}本）：\n{json.dumps(books, ensure_ascii=False, indent=2)}"
         
         elif category == "reservation":
             reservations = db_tools.query_user_reservations(user_id)

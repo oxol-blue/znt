@@ -6,6 +6,8 @@
 </script>
 
 <style>
+@import './styles/mobile.css';
+
 * {
   margin: 0;
   padding: 0;

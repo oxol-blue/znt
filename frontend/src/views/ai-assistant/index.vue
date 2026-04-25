@@ -36,7 +36,10 @@
                 <div v-if="msg.books && msg.books.length > 0 && !msg.streaming" class="borrow-confirm">
                   <el-divider />
                   <div class="book-list">
-                    <div v-for="book in msg.books.slice(0, 3)" :key="book.id" class="book-item">
+                    <!-- 如果用户明确指定了书名，只显示匹配的那本或第一本会借的 -->
+                    <div v-for="book in (pendingAction?.bookTitle ? 
+                      msg.books.filter(b => b.title === pendingAction.bookTitle || b.available > 0).slice(0, 1) : 
+                      msg.books.slice(0, 3))" :key="book.id" class="book-item">
                       <el-icon><Document /></el-icon>
                       <span class="book-title">《{{ book.title }}》</span>
                       <el-tag :type="book.available > 0 ? 'success' : 'danger'" size="small">
@@ -45,7 +48,7 @@
                     </div>
                   </div>
                   <div v-if="msg.books.some(b => b.available > 0)" class="confirm-actions">
-                    <span class="confirm-hint">是否确认借阅第一本书？</span>
+                    <span class="confirm-hint">是否确认借阅《{{ pendingAction?.bookTitle || '该书' }}》？</span>
                     <el-button type="primary" size="small" @click="confirmBorrow">确认借阅</el-button>
                     <el-button size="small" @click="cancelBorrow">取消</el-button>
                   </div>
@@ -432,12 +435,29 @@ const sendMessage = async () => {
           } else if (chunk.type === 'books') {
             // 收到图书数据，保存到消息和待执行操作
             assistantMsg.books = chunk.data
-            // 找第一本可借的书
-            const availableBook = chunk.data.find(b => b.available > 0)
+            // 从用户消息中提取书名
+            const bookMatch = userMsg.match(/《(.+?)》/)
+            const requestedTitle = bookMatch ? bookMatch[1] : ''
+            // 优先匹配用户指定的书名，否则找第一本可借的书
+            let availableBook = null
+            if (requestedTitle) {
+              // 尝试精确匹配或包含匹配
+              availableBook = chunk.data.find(b => 
+                b.available > 0 && (
+                  b.title === requestedTitle || 
+                  b.title.includes(requestedTitle)
+                )
+              )
+            }
+            // 如果没找到匹配的书，使用第一本可借的
+            if (!availableBook) {
+              availableBook = chunk.data.find(b => b.available > 0)
+            }
             if (availableBook) {
               pendingAction.value = {
                 action: 'borrow_book',
-                params: { book_id: availableBook.id }
+                params: { book_id: availableBook.id },
+                bookTitle: availableBook.title  // 保存书名用于显示
               }
             }
           } else if (chunk.type === 'db_data') {
