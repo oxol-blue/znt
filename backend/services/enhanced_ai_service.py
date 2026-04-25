@@ -677,10 +677,26 @@ class EnhancedDeepSeekService:
             if end_time:
                 params["end_time"] = end_time
             
-            # 提取场地名称（支持a01、b205等多种格式）
+            # 提取场地名称（支持a01、b205、302、B1等多种格式）
+            # 先尝试匹配字母+数字格式（如a02, B205）
             venue_match = re.search(r'([a-zA-Z]\d{2,4})\s*(?:自习室|教室|实验室|会议室)?', message, re.IGNORECASE)
             if venue_match:
-                params["venue_name"] = venue_match.group(1).upper()
+                venue_name = venue_match.group(1).upper()
+                params["venue_name"] = venue_name
+                # 立即搜索场地获取venue_id
+                venues = self._search_venue_by_name(venue_name)
+                if len(venues) == 1:
+                    params["venue_id"] = venues[0]['id']
+            else:
+                # 尝试匹配纯数字（如302, 205）
+                venue_match = re.search(r'(\d{3,4})\s*(?:自习室|教室|实验室|会议室)?', message)
+                if venue_match:
+                    venue_name = venue_match.group(1)
+                    params["venue_name"] = venue_name
+                    # 立即搜索场地获取venue_id
+                    venues = self._search_venue_by_name(venue_name)
+                    if len(venues) == 1:
+                        params["venue_id"] = venues[0]['id']
             
             # 提取场地类型
             venue_types = {
@@ -707,6 +723,10 @@ class EnhancedDeepSeekService:
                 if keyword in message:
                     params["purpose"] = purpose
                     break
+            
+            # 如果用途仍为空，设置默认值
+            if not params.get("purpose"):
+                params["purpose"] = "学习"
         
         elif action == "borrow_book":
             # 提取书名（匹配书名号《》或引号）
