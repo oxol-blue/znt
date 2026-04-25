@@ -1,212 +1,233 @@
 <template>
   <div class="dashboard">
-    <!-- 欢迎卡片 -->
-    <el-card class="welcome-card">
-      <div class="welcome-content">
-        <div>
-          <h2>欢迎回来，{{ userStore.userInfo?.name || userStore.username }}！</h2>
-          <p class="subtitle">今天是 {{ today }}，祝您工作愉快！</p>
-        </div>
+    <!-- 顶部欢迎区域 -->
+    <div class="welcome-section">
+      <div class="welcome-left">
+        <h1>👋 欢迎回来，{{ userStore.userInfo?.name || userStore.username }}</h1>
+        <p class="date">{{ today }} · {{ greeting }}</p>
       </div>
-    </el-card>
+      <div class="welcome-right">
+        <el-button type="primary" :icon="Setting" circle @click="$router.push('/profile')" />
+      </div>
+    </div>
 
-    <!-- 统计卡片 -->
-    <el-row :gutter="20" class="stat-row">
-      <el-col :span="6">
-        <el-card class="stat-card" :body-style="{ padding: '20px' }">
-          <div class="stat-item">
-            <el-icon :size="40" color="#409EFF"><Collection /></el-icon>
-            <div class="stat-info">
-              <div class="stat-value">{{ stats.borrowCount }}</div>
-              <div class="stat-label">我的借阅</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card class="stat-card" :body-style="{ padding: '20px' }">
-          <div class="stat-item">
-            <el-icon :size="40" color="#67C23A"><OfficeBuilding /></el-icon>
-            <div class="stat-info">
-              <div class="stat-value">{{ stats.reservationCount }}</div>
-              <div class="stat-label">我的预约</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card class="stat-card" :body-style="{ padding: '20px' }">
-          <div class="stat-item">
-            <el-icon :size="40" color="#E6A23C"><List /></el-icon>
-            <div class="stat-info">
-              <div class="stat-value">{{ stats.taskCount }}</div>
-              <div class="stat-label">待办任务</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="6">
-        <el-card class="stat-card" :body-style="{ padding: '20px' }">
-          <div class="stat-item">
-            <el-icon :size="40" color="#F56C6C"><Bell /></el-icon>
-            <div class="stat-info">
-              <div class="stat-value">{{ stats.unreadCount }}</div>
-              <div class="stat-label">未读通知</div>
-            </div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- 快捷入口 -->
-    <el-row :gutter="20">
-      <el-col :span="12">
-        <el-card>
-          <template #header>
-            <div class="card-header">
-              <span>快捷入口</span>
-            </div>
-          </template>
-          <div class="quick-links">
-            <el-button
-              v-for="link in quickLinks"
-              :key="link.path"
-              :icon="link.icon"
-              @click="$router.push(link.path)"
-            >
-              {{ link.title }}
-            </el-button>
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :span="12">
-        <el-card>
-          <template #header>
-            <div class="card-header">
-              <span>最近通知</span>
-              <el-button text @click="$router.push('/notifications')">查看全部</el-button>
-            </div>
-          </template>
-          <el-empty v-if="!recentNotifications.length" description="暂无通知" />
-          <el-timeline v-else>
-            <el-timeline-item
-              v-for="item in recentNotifications"
-              :key="item.id"
-              :type="item.type === 'urgent' ? 'danger' : 'primary'"
-              :timestamp="item.created_at"
-            >
-              {{ item.title }}
-            </el-timeline-item>
-          </el-timeline>
-        </el-card>
-      </el-col>
-    </el-row>
-
-    <!-- AI 助手区域 -->
-    <el-row :gutter="20" class="ai-row">
-      <el-col :span="24">
-        <el-card class="ai-assistant-card">
-          <template #header>
-            <div class="card-header">
-              <div class="ai-title">
-                <el-icon :size="20" color="#409EFF"><ChatDotRound /></el-icon>
-                <span>AI 校园助手</span>
-                <el-tag v-if="contextUsed" type="success" size="small">知识库</el-tag>
+    <!-- 主体内容区域 -->
+    <el-row :gutter="24" class="main-content">
+      <!-- 左侧：AI助手 -->
+      <el-col :xs="24" :sm="24" :md="16" :lg="16">
+        <div class="ai-section">
+          <div class="ai-header">
+            <div class="ai-brand">
+              <div class="ai-icon">
+                <el-icon :size="24"><ChatDotRound /></el-icon>
               </div>
-              <div class="header-actions">
-                <el-button type="primary" link :icon="Plus" @click="newChat">新建对话</el-button>
-                <el-button text @click="$router.push('/ai-assistant')">进入完整版</el-button>
+              <div class="ai-info">
+                <span class="ai-name">AI 校园助手</span>
+                <span v-if="contextUsed" class="ai-status">
+                  <el-tag type="success" size="small">知识库已连接</el-tag>
+                </span>
+                <span v-else class="ai-status">随时为您服务</span>
               </div>
             </div>
-          </template>
-
-          <!-- 消息列表 -->
-          <div class="chat-messages" ref="messagesRef">
-            <div
-              v-for="(msg, index) in messages"
-              :key="index"
-              :class="['message', msg.role]"
-            >
-              <el-avatar
-                :size="36"
-                :icon="msg.role === 'user' ? User : ChatDotRound"
-                :class="msg.role"
-              />
-              <div class="message-content">
-                <div class="message-text" v-html="formatMessage(msg.content)"></div>
-                <span v-if="msg.streaming" class="streaming-cursor">▊</span>
-                <!-- 确认借阅按钮 -->
-                <div v-if="msg.books && msg.books.length > 0 && !msg.streaming" class="borrow-confirm">
-                  <el-divider />
-                  <div class="book-list">
-                    <div v-for="book in (pendingAction?.bookTitle ? 
-                      msg.books.filter(b => b.title === pendingAction.bookTitle || b.available > 0).slice(0, 1) : 
-                      msg.books.slice(0, 3))" :key="book.id" class="book-item">
-                      <el-icon><Document /></el-icon>
-                      <span class="book-title">《{{ book.title }}》</span>
-                      <el-tag :type="book.available > 0 ? 'success' : 'danger'" size="small">
-                        {{ book.available > 0 ? `可借 ${book.available} 本` : '暂无库存' }}
-                      </el-tag>
-                    </div>
-                  </div>
-                  <div v-if="msg.books.some(b => b.available > 0)" class="confirm-actions">
-                    <span class="confirm-hint">是否确认借阅《{{ pendingAction?.bookTitle || '该书' }}》？</span>
-                    <el-button type="primary" size="small" @click="confirmBorrow">确认借阅</el-button>
-                    <el-button size="small" @click="cancelBorrow">取消</el-button>
-                  </div>
-                </div>
-                <div class="message-meta">
-                  <span class="message-time">{{ msg.time }}</span>
-                  <el-tag v-if="msg.source === 'quick_reply'" type="info" size="small">快速回复</el-tag>
-                  <el-tag v-else-if="msg.data_source === 'database'" type="success" size="small">个人数据</el-tag>
-                  <el-tag v-else-if="msg.data_source === 'knowledge_base'" type="warning" size="small">知识库</el-tag>
-                </div>
-              </div>
-            </div>
-            <div v-if="loading && !messages.some(m => m.streaming)" class="message assistant">
-              <el-avatar :size="36" :icon="ChatDotRound" class="assistant" />
-              <div class="message-content">
-                <div class="streaming-indicator">
-                  <span class="dot"></span>
-                  <span class="dot"></span>
-                  <span class="dot"></span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- 快捷问题 -->
-          <div class="quick-questions-bar">
-            <el-button
-              v-for="q in quickQuestions.slice(0, 4)"
-              :key="q"
-              type="primary"
-              plain
-              size="small"
-              @click="askQuestion(q)"
-            >
-              {{ q }}
-            </el-button>
-          </div>
-
-          <!-- 输入区 -->
-          <div class="chat-input">
-            <el-input
-              v-model="inputMessage"
-              type="textarea"
-              :rows="2"
-              :placeholder="inputPlaceholder"
-              resize="none"
-              @keydown.enter.prevent="handleKeydown"
-            />
-            <div class="input-actions">
-              <span class="hint">Enter 发送，Ctrl + Enter 换行</span>
-              <el-button type="primary" :icon="Promotion" :loading="loading" @click="sendMessage">
-                发送
+            <div class="ai-actions">
+              <el-button link :icon="Plus" @click="newChat">新建对话</el-button>
+              <el-button type="primary" link :icon="FullScreen" @click="$router.push('/ai-assistant')">
+                全屏模式
               </el-button>
             </div>
           </div>
-        </el-card>
+
+          <!-- 聊天区域 -->
+          <div class="chat-container">
+            <div class="chat-messages" ref="messagesRef">
+              <div
+                v-for="(msg, index) in messages"
+                :key="index"
+                :class="['message', msg.role]"
+              >
+                <div class="avatar">
+                  <el-avatar
+                    :size="36"
+                    :icon="msg.role === 'user' ? User : ChatDotRound"
+                  />
+                </div>
+                <div class="message-bubble">
+                  <div class="message-text" v-html="formatMessage(msg.content)"></div>
+                  <span v-if="msg.streaming" class="streaming-cursor">▊</span>
+                  <!-- 确认借阅按钮 -->
+                  <div v-if="msg.books && msg.books.length > 0 && !msg.streaming" class="borrow-confirm">
+                    <div class="book-list">
+                      <div v-for="book in (pendingAction?.bookTitle ? 
+                        msg.books.filter(b => b.title === pendingAction.bookTitle || b.available > 0).slice(0, 1) : 
+                        msg.books.slice(0, 3))" :key="book.id" class="book-item">
+                        <el-icon><Document /></el-icon>
+                        <span class="book-title">《{{ book.title }}》</span>
+                        <el-tag :type="book.available > 0 ? 'success' : 'danger'" size="small">
+                          {{ book.available > 0 ? `可借 ${book.available} 本` : '暂无库存' }}
+                        </el-tag>
+                      </div>
+                    </div>
+                    <div v-if="msg.books.some(b => b.available > 0)" class="confirm-actions">
+                      <span class="confirm-hint">是否确认借阅《{{ pendingAction?.bookTitle || '该书' }}》？</span>
+                      <div class="confirm-btns">
+                        <el-button type="primary" size="small" @click="confirmBorrow">确认借阅</el-button>
+                        <el-button size="small" @click="cancelBorrow">取消</el-button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="message-footer">
+                    <span class="message-time">{{ msg.time }}</span>
+                    <el-tag v-if="msg.data_source === 'database'" type="success" size="small" effect="plain">个人数据</el-tag>
+                    <el-tag v-else-if="msg.data_source === 'knowledge_base'" type="warning" size="small" effect="plain">知识库</el-tag>
+                  </div>
+                </div>
+              </div>
+              <div v-if="loading && !messages.some(m => m.streaming)" class="message assistant">
+                <div class="avatar">
+                  <el-avatar :size="36" :icon="ChatDotRound" />
+                </div>
+                <div class="message-bubble">
+                  <div class="streaming-indicator">
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                    <span class="dot"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 快捷问题 -->
+            <div class="quick-chips">
+              <span class="chips-label">常用：</span>
+              <el-button
+                v-for="q in quickQuestions.slice(0, 4)"
+                :key="q"
+                round
+                size="small"
+                @click="askQuestion(q)"
+              >
+                {{ q }}
+              </el-button>
+            </div>
+
+            <!-- 输入区 -->
+            <div class="chat-input-wrapper">
+              <div class="chat-input">
+                <el-input
+                  v-model="inputMessage"
+                  type="textarea"
+                  :rows="2"
+                  :placeholder="inputPlaceholder"
+                  resize="none"
+                  @keydown.enter.prevent="handleKeydown"
+                />
+                <el-button
+                  type="primary"
+                  class="send-btn"
+                  :loading="loading"
+                  @click="sendMessage"
+                >
+                  <el-icon><Promotion /></el-icon>
+                </el-button>
+              </div>
+              <div class="input-hint">
+                <span>Enter 发送 · Ctrl+Enter 换行 · 支持图书借阅、预约查询、通知发布</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </el-col>
+
+      <!-- 右侧：概览信息 -->
+      <el-col :xs="24" :sm="24" :md="8" :lg="8">
+        <div class="sidebar">
+          <!-- 统计概览 -->
+          <div class="stats-grid">
+            <div class="stat-box" @click="$router.push('/library')">
+              <div class="stat-icon" style="background: #e6f2ff; color: #409EFF;">
+                <el-icon><Collection /></el-icon>
+              </div>
+              <div class="stat-detail">
+                <span class="stat-num">{{ stats.borrowCount }}</span>
+                <span class="stat-name">我的借阅</span>
+              </div>
+            </div>
+            <div class="stat-box" @click="$router.push('/reservation')">
+              <div class="stat-icon" style="background: #e6f7ed; color: #67C23A;">
+                <el-icon><OfficeBuilding /></el-icon>
+              </div>
+              <div class="stat-detail">
+                <span class="stat-num">{{ stats.reservationCount }}</span>
+                <span class="stat-name">我的预约</span>
+              </div>
+            </div>
+            <div class="stat-box" @click="$router.push('/tasks')">
+              <div class="stat-icon" style="background: #fdf6ec; color: #E6A23C;">
+                <el-icon><List /></el-icon>
+              </div>
+              <div class="stat-detail">
+                <span class="stat-num">{{ stats.taskCount }}</span>
+                <span class="stat-name">待办任务</span>
+              </div>
+            </div>
+            <div class="stat-box" @click="$router.push('/notifications')">
+              <div class="stat-icon" style="background: #fef0f0; color: #F56C6C;">
+                <el-icon><Bell /></el-icon>
+              </div>
+              <div class="stat-detail">
+                <span class="stat-num">{{ stats.unreadCount }}</span>
+                <span class="stat-name">未读通知</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 快捷入口 -->
+          <div class="quick-menu">
+            <h3 class="section-title">快捷入口</h3>
+            <div class="menu-grid">
+              <div
+                v-for="link in quickLinks"
+                :key="link.path"
+                class="menu-item"
+                @click="$router.push(link.path)"
+              >
+                <div class="menu-icon" :style="{ background: link.color + '20', color: link.color }">
+                  <el-icon :size="20"><component :is="link.icon" /></el-icon>
+                </div>
+                <span class="menu-name">{{ link.title }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- 最近通知 -->
+          <div class="recent-notifications">
+            <h3 class="section-title">
+              最近通知
+              <el-button link size="small" @click="$router.push('/notifications')">查看全部</el-button>
+            </h3>
+            <div class="notification-list">
+              <div v-if="!recentNotifications.length" class="empty-notifications">
+                <el-icon :size="40" color="#dcdfe6"><Bell /></el-icon>
+                <span>暂无新通知</span>
+              </div>
+              <template v-else>
+                <div
+                  v-for="item in recentNotifications.slice(0, 3)"
+                  :key="item.id"
+                  class="notification-item"
+                  :class="{ unread: !item.is_read }"
+                  @click="$router.push('/notifications')"
+                >
+                  <div class="notification-dot" :class="item.type"></div>
+                  <div class="notification-content">
+                    <span class="notification-title">{{ item.title }}</span>
+                    <span class="notification-time">{{ item.created_at }}</span>
+                  </div>
+                </div>
+              </template>
+            </div>
+          </div>
+        </div>
       </el-col>
     </el-row>
   </div>
@@ -222,11 +243,16 @@ import {
   OfficeBuilding,
   List,
   Bell,
-  HomeFilled,
   User,
   Plus,
   Promotion,
-  Document
+  Document,
+  Setting,
+  FullScreen,
+  Calendar,
+  Reading,
+  Location,
+  Message
 } from '@element-plus/icons-vue'
 import { getBorrows } from '@/api/library'
 import { getReservations } from '@/api/reservation'
@@ -237,7 +263,15 @@ import { marked } from 'marked'
 import dayjs from 'dayjs'
 
 const userStore = useUserStore()
-const today = computed(() => dayjs().format('YYYY年MM月DD日'))
+const today = computed(() => dayjs().format('YYYY年M月D日'))
+
+const greeting = computed(() => {
+  const hour = dayjs().hour()
+  if (hour < 12) return '早上好，开启美好的一天！'
+  if (hour < 14) return '中午好，记得休息哦！'
+  if (hour < 18) return '下午好，继续加油！'
+  return '晚上好，今天辛苦了！'
+})
 
 const stats = ref({
   borrowCount: 0,
@@ -247,21 +281,19 @@ const stats = ref({
 })
 
 const quickLinks = [
-  { path: '/library', title: '图书借阅', icon: 'Collection' },
-  { path: '/reservation', title: '场地预约', icon: 'OfficeBuilding' },
-  { path: '/tasks', title: '任务管理', icon: 'List' },
-  { path: '/notifications', title: '通知中心', icon: 'Bell' }
+  { path: '/library', title: '图书借阅', icon: Reading, color: '#409EFF' },
+  { path: '/reservation', title: '场地预约', icon: Location, color: '#67C23A' },
+  { path: '/tasks', title: '任务管理', icon: Calendar, color: '#E6A23C' },
+  { path: '/notifications', title: '通知中心', icon: Message, color: '#F56C6C' }
 ]
 
 const recentNotifications = ref([])
 
-// AI 助手相关状态 - 与独立AI助手页面使用相同的存储键
+// AI 助手相关状态
 const CURRENT_CHAT_KEY = 'ai_current_chat'
 
-// 生成唯一ID
 const generateId = () => Date.now().toString(36) + Math.random().toString(36).substr(2)
 
-// 默认欢迎消息
 const getWelcomeMessage = () => ({
   role: 'assistant',
   content: '您好！我是智慧校园 AI 助手，可以帮您：\n\n📖 查询图书和借阅记录\n📅 查看和办理场地预约\n📢 获取通知和任务信息\n📝 辅助教师发布通知\n\n请问有什么可以帮助您的？',
@@ -269,7 +301,6 @@ const getWelcomeMessage = () => ({
   context_used: false
 })
 
-// 当前会话
 const currentSession = ref({
   id: generateId(),
   title: '新对话',
@@ -284,7 +315,6 @@ const messagesRef = ref()
 const contextUsed = ref(false)
 const pendingAction = ref(null)
 
-// messages 指向当前会话的消息
 const messages = computed(() => currentSession.value.messages)
 
 const userRole = computed(() => userStore.userInfo?.role || 'student')
@@ -300,12 +330,9 @@ const quickQuestions = [
   '我借了哪些书？',
   '我的预约记录',
   '有哪些图书可以借？',
-  '我的未读通知',
-  '我的任务有哪些？',
-  userRole.value === 'teacher' ? '发布关于期中考试的通知' : '图书馆开放时间'
+  '我的未读通知'
 ]
 
-// 从 localStorage 加载当前会话
 const loadCurrentSession = () => {
   const saved = localStorage.getItem(CURRENT_CHAT_KEY)
   if (saved) {
@@ -321,13 +348,11 @@ const loadCurrentSession = () => {
   }
 }
 
-// 保存当前会话
 const saveCurrentSession = () => {
   currentSession.value.updatedAt = dayjs().format('YYYY-MM-DD HH:mm:ss')
   localStorage.setItem(CURRENT_CHAT_KEY, JSON.stringify(currentSession.value))
 }
 
-// 更新会话标题（基于第一条用户消息）
 const updateSessionTitle = () => {
   const firstUserMsg = currentSession.value.messages.find(m => m.role === 'user')
   if (firstUserMsg && currentSession.value.title === '新对话') {
@@ -369,25 +394,19 @@ const sendMessage = async () => {
   const userMsg = inputMessage.value.trim()
   const currentTime = dayjs().format('HH:mm')
 
-  // 添加用户消息到当前会话
   currentSession.value.messages.push({
     role: 'user',
     content: userMsg,
     time: currentTime
   })
 
-  // 更新会话标题（如果是第一条用户消息）
   updateSessionTitle()
-
-  // 保存当前会话
   saveCurrentSession()
-
   inputMessage.value = ''
   loading.value = true
   contextUsed.value = false
   scrollToBottom()
 
-  // 添加 AI 响应消息
   currentSession.value.messages.push({
     role: 'assistant',
     content: '',
@@ -405,7 +424,6 @@ const sendMessage = async () => {
   if (pendingAction.value && isConfirm && !isCancel) {
     assistantMsg.streaming = false
     assistantMsg.content = '正在处理您的请求...'
-
     try {
       const result = await executeAction(pendingAction.value)
       if (result.code === 200) {
@@ -522,7 +540,6 @@ const cancelBorrow = () => {
 }
 
 const newChat = () => {
-  // 保存当前会话到历史列表（如果有多于欢迎消息的内容）
   if (currentSession.value.messages.length > 1) {
     const CHAT_SESSIONS_KEY = 'ai_chat_sessions'
     const sessions = JSON.parse(localStorage.getItem(CHAT_SESSIONS_KEY) || '[]')
@@ -531,7 +548,6 @@ const newChat = () => {
     localStorage.setItem(CHAT_SESSIONS_KEY, JSON.stringify(sessions))
   }
 
-  // 创建新会话
   currentSession.value = {
     id: generateId(),
     title: '新对话',
@@ -554,7 +570,7 @@ const fetchStats = async () => {
       getTasks(),
       getUnreadCount()
     ])
-    
+
     if (borrowRes.code === 200) {
       stats.value.borrowCount = borrowRes.data.items?.length || 0
     }
@@ -593,157 +609,185 @@ onMounted(() => {
 
 <style scoped>
 .dashboard {
-  padding-bottom: 20px;
+  padding: 20px;
+  max-width: 1600px;
+  margin: 0 auto;
 }
 
-.welcome-card {
-  margin-bottom: 20px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: #fff;
-}
-
-.welcome-content {
+/* 欢迎区域 */
+.welcome-section {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-bottom: 24px;
+  padding: 0 4px;
 }
 
-.welcome-content h2 {
-  margin: 0 0 8px;
-  font-size: 24px;
-}
-
-.subtitle {
+.welcome-left h1 {
   margin: 0;
-  opacity: 0.9;
-  font-size: 14px;
-}
-
-.stat-row {
-  margin-bottom: 20px;
-}
-
-.stat-card {
-  cursor: pointer;
-  transition: transform 0.3s;
-}
-
-.stat-card:hover {
-  transform: translateY(-5px);
-}
-
-.stat-item {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.stat-info {
-  flex: 1;
-}
-
-.stat-value {
-  font-size: 28px;
-  font-weight: bold;
+  font-size: 24px;
+  font-weight: 600;
   color: #303133;
-  line-height: 1;
 }
 
-.stat-label {
+.welcome-left .date {
+  margin: 8px 0 0;
   font-size: 14px;
   color: #909399;
-  margin-top: 8px;
 }
 
-.card-header {
+/* 主体内容 */
+.main-content {
+  align-items: stretch;
+}
+
+/* AI 助手区域 */
+.ai-section {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 160px);
+  min-height: 600px;
+  overflow: hidden;
+}
+
+.ai-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-weight: bold;
+  padding: 16px 20px;
+  border-bottom: 1px solid #f0f0f0;
 }
 
-.quick-links {
+.ai-brand {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 12px;
 }
 
-.quick-links .el-button {
-  min-width: 120px;
-}
-
-:deep(.el-timeline-item__content) {
-  color: #606266;
-}
-
-/* AI 助手卡片样式 */
-.ai-row {
-  margin-top: 20px;
-}
-
-.ai-assistant-card {
+.ai-icon {
+  width: 44px;
+  height: 44px;
   border-radius: 12px;
-}
-
-.ai-assistant-card :deep(.el-card__body) {
-  padding: 16px;
-}
-
-.ai-title {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: bold;
+  justify-content: center;
+  color: #fff;
+}
+
+.ai-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ai-name {
   font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.ai-status {
+  font-size: 12px;
+  color: #67C23A;
+}
+
+.ai-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* 聊天容器 */
+.chat-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .chat-messages {
-  height: 300px;
+  flex: 1;
   overflow-y: auto;
-  padding: 12px;
-  background-color: #f5f7fa;
-  border-radius: 8px;
-  margin-bottom: 12px;
+  padding: 20px;
+  background: #f8f9fa;
 }
 
 .message {
   display: flex;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin-bottom: 20px;
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .message.user {
   flex-direction: row-reverse;
 }
 
-.message-content {
-  max-width: 75%;
-  padding: 10px 14px;
-  border-radius: 12px;
-  background-color: #fff;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+.avatar .el-avatar {
+  background: #e4e7ed;
+  color: #606266;
 }
 
-.message.user .message-content {
-  background-color: #409EFF;
+.message.user .avatar .el-avatar {
+  background: #409EFF;
   color: #fff;
 }
 
+.message-bubble {
+  max-width: 75%;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  position: relative;
+}
+
+.message.assistant .message-bubble {
+  border-top-left-radius: 4px;
+}
+
+.message.user .message-bubble {
+  background: #409EFF;
+  color: #fff;
+  border-top-right-radius: 4px;
+}
+
 .message-text {
-  line-height: 1.5;
-  word-break: break-word;
+  line-height: 1.6;
   font-size: 14px;
 }
 
 .message-text :deep(p) {
-  margin: 6px 0;
+  margin: 8px 0;
 }
 
-.message-meta {
+.message-text :deep(p:first-child) {
+  margin-top: 0;
+}
+
+.message-text :deep(p:last-child) {
+  margin-bottom: 0;
+}
+
+.message-footer {
   display: flex;
-  gap: 6px;
+  gap: 8px;
   align-items: center;
-  margin-top: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.message.user .message-footer {
+  border-top-color: rgba(255, 255, 255, 0.2);
 }
 
 .message-time {
@@ -755,15 +799,15 @@ onMounted(() => {
   color: rgba(255, 255, 255, 0.7);
 }
 
+/* 流式输出效果 */
 .streaming-cursor {
   display: inline-block;
   color: #409EFF;
   font-weight: bold;
-  margin-left: 2px;
-  animation: cursor-blink 0.8s infinite;
+  animation: blink 0.8s infinite;
 }
 
-@keyframes cursor-blink {
+@keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0; }
 }
@@ -771,292 +815,474 @@ onMounted(() => {
 .streaming-indicator {
   display: flex;
   gap: 4px;
-  align-items: center;
-  padding: 4px 0;
+  padding: 8px 0;
 }
 
 .streaming-indicator .dot {
   width: 8px;
   height: 8px;
-  background-color: #909399;
+  background: #c0c4cc;
   border-radius: 50%;
   animation: bounce 1.4s ease-in-out infinite both;
 }
 
-.streaming-indicator .dot:nth-child(1) {
-  animation-delay: -0.32s;
-}
-
-.streaming-indicator .dot:nth-child(2) {
-  animation-delay: -0.16s;
-}
+.streaming-indicator .dot:nth-child(1) { animation-delay: -0.32s; }
+.streaming-indicator .dot:nth-child(2) { animation-delay: -0.16s; }
 
 @keyframes bounce {
-  0%, 80%, 100% {
-    transform: scale(0.6);
-    opacity: 0.5;
-  }
-  40% {
-    transform: scale(1);
-    opacity: 1;
-    background-color: #409EFF;
-  }
+  0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+  40% { transform: scale(1); opacity: 1; background: #409EFF; }
 }
 
-.quick-questions-bar {
+/* 快捷问题 */
+.quick-chips {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
-  padding: 0 4px;
-}
-
-.chat-input {
-  border-top: 1px solid #ebeef5;
-  padding-top: 12px;
-}
-
-.chat-input :deep(.el-textarea__inner) {
-  border-radius: 8px;
-}
-
-.input-actions {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-top: 10px;
+  gap: 8px;
+  padding: 12px 20px;
+  background: #fff;
+  border-top: 1px solid #f0f0f0;
+  flex-wrap: wrap;
 }
 
-.input-actions .hint {
+.chips-label {
   font-size: 12px;
   color: #909399;
 }
 
-/* 借阅确认样式 */
+.quick-chips .el-button {
+  font-size: 12px;
+}
+
+/* 输入区域 */
+.chat-input-wrapper {
+  padding: 16px 20px 20px;
+  background: #fff;
+  border-top: 1px solid #f0f0f0;
+}
+
+.chat-input {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.chat-input .el-textarea {
+  flex: 1;
+}
+
+.chat-input :deep(.el-textarea__inner) {
+  border-radius: 12px;
+  padding: 12px 16px;
+  resize: none;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  border: 1px solid #e4e7ed;
+}
+
+.chat-input :deep(.el-textarea__inner:focus) {
+  border-color: #409EFF;
+  box-shadow: 0 2px 12px rgba(64, 158, 255, 0.15);
+}
+
+.send-btn {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.input-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: #c0c4cc;
+  text-align: center;
+}
+
+/* 借阅确认 */
 .borrow-confirm {
-  margin-top: 10px;
-  padding-top: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
 }
 
 .book-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .book-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
-  background-color: #f5f7fa;
-  border-radius: 6px;
+  padding: 8px 12px;
+  background: #f5f7fa;
+  border-radius: 8px;
   font-size: 13px;
 }
 
 .book-title {
   flex: 1;
   color: #303133;
+}
+
+.confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.confirm-hint {
+  font-size: 13px;
+  color: #606266;
+}
+
+.confirm-btns {
+  display: flex;
+  gap: 8px;
+}
+
+.message.user .borrow-confirm {
+  border-top-color: rgba(255, 255, 255, 0.2);
+}
+
+.message.user .book-item {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.message.user .book-title,
+.message.user .confirm-hint {
+  color: #fff;
+}
+
+/* 右侧边栏 */
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* 统计网格 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.stat-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  transition: all 0.3s;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.stat-box:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+}
+
+.stat-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stat-detail {
+  display: flex;
+  flex-direction: column;
+}
+
+.stat-num {
+  font-size: 24px;
+  font-weight: 600;
+  color: #303133;
+  line-height: 1;
+}
+
+.stat-name {
+  font-size: 12px;
+  color: #909399;
+  margin-top: 4px;
+}
+
+/* 快捷菜单 */
+.quick-menu {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.section-title {
+  margin: 0 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.menu-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 12px 4px;
+  border-radius: 8px;
+  transition: all 0.3s;
+}
+
+.menu-item:hover {
+  background: #f5f7fa;
+}
+
+.menu-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.menu-name {
+  font-size: 12px;
+  color: #606266;
+}
+
+/* 最近通知 */
+.recent-notifications {
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+}
+
+.notification-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.empty-notifications {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 30px 0;
+  color: #c0c4cc;
+  gap: 8px;
+}
+
+.notification-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.notification-item:hover {
+  background: #f5f7fa;
+}
+
+.notification-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+.notification-dot.urgent { background: #F56C6C; }
+.notification-dot.normal { background: #409EFF; }
+.notification-dot.low { background: #67C23A; }
+
+.notification-item.unread .notification-dot {
+  box-shadow: 0 0 0 3px rgba(245, 108, 108, 0.2);
+}
+
+.notification-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.notification-title {
+  font-size: 13px;
+  color: #303133;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.confirm-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
+.notification-time {
+  font-size: 11px;
+  color: #909399;
 }
 
-.confirm-hint {
-  font-size: 12px;
-  color: #606266;
+/* Markdown 样式 */
+.message-text :deep(code) {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
 }
 
-.message.user .borrow-confirm .book-item {
-  background-color: rgba(255, 255, 255, 0.15);
+.message.user .message-text :deep(code) {
+  background: rgba(255, 255, 255, 0.2);
 }
 
-.message.user .borrow-confirm .book-title {
-  color: #fff;
+.message-text :deep(ul), .message-text :deep(ol) {
+  margin: 8px 0;
+  padding-left: 20px;
 }
 
-.message.user .borrow-confirm .confirm-hint {
-  color: rgba(255, 255, 255, 0.9);
+.message-text :deep(li) {
+  margin: 4px 0;
 }
 
-/* 移动端适配 */
-@media screen and (max-width: 768px) {
-  .welcome-content {
-    flex-direction: column;
-    gap: 16px;
-    text-align: center;
+/* 响应式适配 */
+@media screen and (max-width: 992px) {
+  .dashboard {
+    padding: 16px;
   }
-  
-  .welcome-content h2 {
-    font-size: 18px;
+
+  .welcome-section {
+    margin-bottom: 16px;
   }
-  
-  .subtitle {
-    font-size: 13px;
-  }
-  
-  .stat-row {
-    margin-bottom: 12px;
-  }
-  
-  .stat-row .el-col {
-    margin-bottom: 8px;
-  }
-  
-  .stat-card {
-    margin-bottom: 0;
-  }
-  
-  .stat-card :deep(.el-card__body) {
-    padding: 12px !important;
-  }
-  
-  .stat-item {
-    gap: 12px;
-  }
-  
-  .stat-item .el-icon {
-    font-size: 32px !important;
-  }
-  
-  .stat-value {
+
+  .welcome-left h1 {
     font-size: 20px;
   }
-  
-  .stat-label {
-    font-size: 12px;
-    margin-top: 4px;
+
+  .ai-section {
+    height: auto;
+    min-height: 500px;
   }
-  
-  .el-row {
-    margin-left: 0 !important;
-    margin-right: 0 !important;
+
+  .chat-messages {
+    height: 350px;
   }
-  
-  .el-col-12 {
-    width: 100%;
-    padding-left: 0 !important;
-    padding-right: 0 !important;
-    margin-bottom: 12px;
+
+  .sidebar {
+    margin-top: 20px;
   }
-  
-  .quick-links {
-    justify-content: center;
-  }
-  
-  .quick-links .el-button {
-    flex: 1;
-    min-width: auto;
-    font-size: 13px;
-  }
-  
-  /* AI 助手移动端适配 */
-  .ai-row {
-    margin-top: 12px;
-  }
-  
-  .ai-assistant-card :deep(.el-card__header) {
+}
+
+@media screen and (max-width: 768px) {
+  .dashboard {
     padding: 12px;
   }
-  
-  .ai-assistant-card :deep(.el-card__body) {
-    padding: 12px;
+
+  .welcome-section {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
   }
-  
-  .ai-title {
+
+  .welcome-left h1 {
+    font-size: 18px;
+  }
+
+  .ai-header {
+    padding: 12px 16px;
+  }
+
+  .ai-icon {
+    width: 36px;
+    height: 36px;
+  }
+
+  .ai-name {
     font-size: 14px;
   }
-  
-  .header-actions .el-button {
-    padding: 4px 8px;
-    font-size: 12px;
-  }
-  
+
   .chat-messages {
-    height: 250px;
-    padding: 8px;
+    padding: 12px;
+    height: 300px;
   }
-  
-  .message {
-    gap: 8px;
-    margin-bottom: 10px;
-  }
-  
-  .message-content {
+
+  .message-bubble {
     max-width: 85%;
-    padding: 8px 10px;
+    padding: 10px 12px;
   }
-  
-  .message-text {
-    font-size: 13px;
+
+  .quick-chips {
+    padding: 10px 12px;
   }
-  
-  .quick-questions-bar {
-    gap: 6px;
+
+  .chat-input-wrapper {
+    padding: 12px;
   }
-  
-  .quick-questions-bar .el-button {
-    padding: 6px 10px;
-    font-size: 12px;
+
+  .send-btn {
+    width: 40px;
+    height: 40px;
   }
-  
-  .chat-input :deep(.el-textarea__inner) {
-    min-height: 50px !important;
-  }
-  
-  .input-actions {
-    flex-direction: column;
+
+  .stats-grid {
     gap: 8px;
-    align-items: flex-start;
   }
-  
-  .input-actions .el-button {
-    align-self: flex-end;
+
+  .stat-box {
+    padding: 12px;
+  }
+
+  .stat-icon {
+    width: 40px;
+    height: 40px;
+  }
+
+  .stat-num {
+    font-size: 20px;
+  }
+
+  .menu-grid {
+    grid-template-columns: repeat(2, 1fr);
   }
 }
 
 @media screen and (max-width: 480px) {
-  .welcome-content h2 {
-    font-size: 16px;
-  }
-  
-  .stat-item {
-    flex-direction: column;
-    text-align: center;
-    gap: 8px;
-  }
-  
-  .stat-item .el-icon {
-    font-size: 28px !important;
-  }
-  
-  .quick-links .el-button {
-    padding: 8px 12px;
-  }
-  
-  .chat-messages {
-    height: 220px;
-  }
-  
-  .message-content {
+  .message-bubble {
     max-width: 90%;
   }
-  
-  .confirm-actions {
-    flex-direction: column;
-    align-items: flex-start;
-    width: 100%;
+
+  .message-text {
+    font-size: 13px;
   }
-  
-  .confirm-actions .el-button {
+
+  .input-hint {
+    display: none;
+  }
+
+  .confirm-btns {
+    flex-direction: column;
+  }
+
+  .confirm-btns .el-button {
     width: 100%;
   }
 }

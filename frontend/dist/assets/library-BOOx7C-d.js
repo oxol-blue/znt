@@ -1,0 +1,1 @@
+import{a3 as o}from"./index-CrPNHY55.js";const s=r=>o.get("/library/books",{params:r}),e=r=>o.post("/library/books",r),a=r=>o.post("/library/borrow",r),b=()=>o.get("/library/borrows");export{s as a,a as b,e as c,b as g};

@@ -365,8 +365,8 @@ class EnhancedDeepSeekService:
                 # 设置待执行操作
                 conversation_manager.set_pending_action(user_id, intent, collected)
             else:
-                # 还有缺失参数，提示用户
-                prompt = conversation_manager.get_missing_params_prompt(user_id)
+                # 还有缺失参数，逐个询问（使用详细版）
+                prompt = conversation_manager.get_missing_params_prompt(user_id, ask_one_by_one=True)
                 yield f"data: {json.dumps({'type': 'content', 'data': prompt}, ensure_ascii=False)}\n\n"
                 yield f"data: [DONE]\n\n"
                 return
@@ -411,8 +411,8 @@ class EnhancedDeepSeekService:
                     collected_params=params,
                     missing_params=missing_params
                 )
-                # 提示用户提供缺失参数
-                prompt = conversation_manager.get_missing_params_prompt(user_id)
+                # 逐个询问缺失参数（使用详细版）
+                prompt = conversation_manager.get_missing_params_prompt(user_id, ask_one_by_one=True)
                 yield f"data: {json.dumps({'type': 'content', 'data': prompt}, ensure_ascii=False)}\n\n"
                 yield f"data: [DONE]\n\n"
                 return
@@ -476,18 +476,37 @@ class EnhancedDeepSeekService:
 所有办理、执行、提交等操作都必须由用户在前端界面点击确认按钮完成，不是你来做。
 
 【办理业务流程 - 必须遵守】
-1. 当用户说"帮我借书/预约/发布..."时，你只做一件事：查询相关信息并展示
-2. 展示信息后，明确询问用户："是否确认办理？"
-3. 【严禁】说"正在办理"、"办理中"、"已提交"等暗示你在执行的话
-4. 【严禁】编造办理结果，如"借阅成功"、"预约完成"等
-5. 正确示例："找到《深度学习》，可借4本。请点击下方确认按钮办理借阅。"
-6. 错误示例："正在为您办理...✅借阅成功！" ❌
+1. 当用户说"帮我借书/预约/发布..."时，系统会逐个询问所需参数（日期、时间等）
+2. 你的角色是确认理解用户需求，并友好地询问下一个参数
+3. 每次只询问一个参数，收到回答后确认并继续询问下一个
+4. 所有参数收集完成后，展示完整信息供用户确认
+5. 【严禁】说"正在办理"、"办理中"、"已提交"等暗示你在执行的话
+6. 【严禁】编造办理结果，如"借阅成功"、"预约完成"等
+
+【参数收集对话示例 - 必须遵循】
+用户："预约a02自习室"
+AI："好的！您想预约a02自习室。请告诉我日期是哪一天？"
+
+用户："明天"
+AI："好的，预约a02自习室，日期是明天。请告诉我时间段是几点到几点？"
+
+用户："下午2点到4点"
+AI："好的，预约a02自习室，日期是明天，时间段是下午2点到4点。请告诉我用途是什么？"
+
+用户："学习"
+AI："好的！为您确认预约信息：
+- 场地：a02自习室
+- 日期：明天（2026-04-26）
+- 时间：14:00-16:00
+- 用途：学习
+是否确认预约？"
 
 【正确回复模板】
-- 查询到图书："找到《书名》，作者XXX，可借X本，位于XXX。是否确认借阅？"
-- 查询到场地："找到XXX场地，可容纳XX人，今日可预约时段：XXX。是否确认预约？"
-- 办理成功（用户点击确认后由系统返回结果）："✅办理成功！"
-- 办理失败（用户点击确认后由系统返回结果）："❌办理失败：XXX"
+- 收集参数中："好的！您想[操作]。请告诉我[参数]是[询问语]？"
+- 确认收到参数："好的，[已收集的信息]。请告诉我[下一个参数]是[询问语]？"
+- 参数收集完成：展示完整信息，询问"是否确认[操作]？"
+- 办理成功（用户点击确认后）："✅办理成功！"
+- 办理失败（用户点击确认后）："❌办理失败：XXX"
 
 你的职责：
 1. 解答校园相关问题

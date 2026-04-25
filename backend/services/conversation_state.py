@@ -6,7 +6,7 @@
 """
 import json
 import time
-from typing import Dict, Optional, List, Any
+from typing import Dict, Optional, List, Any, Tuple
 from datetime import datetime, timedelta
 
 
@@ -173,10 +173,85 @@ class ConversationState:
         state = self.get_state(user_id)
         return state is not None and state.get('step') == 'confirming'
     
-    def get_missing_params_prompt(self, user_id: int) -> str:
+    def get_next_missing_param(self, user_id: int) -> Optional[Tuple[str, str, str]]:
         """
-        获取缺失参数的提示语
+        获取下一个缺失的参数（参数名, 参数描述, 询问语）
+        :return: (param_name, param_desc, question) 或 None
+        """
+        state = self.get_state(user_id)
+        if not state:
+            return None
+        
+        missing = state.get('missing_params', [])
+        if not missing:
+            return None
+        
+        param_names = {
+            'date': ('日期', '是哪一天'),
+            'start_time': ('开始时间', '从几点开始'),
+            'end_time': ('结束时间', '到几点结束'),
+            'purpose': ('用途', '用途是什么'),
+            'venue': ('场地', '请确认场地'),
+            'venue_id': ('场地', '请确认场地'),
+            'book_title': ('书名', '书名是什么'),
+            'title': ('标题', '标题是什么'),
+            'content': ('内容', '内容是什么'),
+            'target_type': ('目标人群', '面向哪些人群'),
+            'task_type': ('任务类型', '任务类型是什么'),
+            'end_date': ('截止日期', '截止日期是哪一天')
+        }
+        
+        # 返回第一个缺失的参数
+        next_param = missing[0]
+        desc, question = param_names.get(next_param, (next_param, f'{next_param}是什么'))
+        return (next_param, desc, question)
+    
+    def get_progress_summary(self, user_id: int) -> str:
+        """
+        生成已收集参数的摘要，用于确认理解
         :param user_id: 用户ID
+        :return: 摘要字符串
+        """
+        state = self.get_state(user_id)
+        if not state:
+            return ""
+        
+        intent = state.get('current_intent', '')
+        collected = state.get('collected_params', {})
+        
+        parts = []
+        
+        if intent == 'create_reservation':
+            if collected.get('venue_name'):
+                parts.append(f"预约{collected['venue_name']}")
+            elif collected.get('venue_id'):
+                parts.append("预约场地")
+            if collected.get('date'):
+                parts.append(f"日期是{collected['date']}")
+            if collected.get('start_time') and collected.get('end_time'):
+                parts.append(f"时间段是{collected['start_time']}-{collected['end_time']}")
+            if collected.get('purpose'):
+                parts.append(f"用途是{collected['purpose']}")
+        
+        elif intent == 'borrow_book':
+            if collected.get('book_title'):
+                parts.append(f"借阅《{collected['book_title']}》")
+            elif collected.get('book_id'):
+                parts.append("借阅图书")
+        
+        elif intent == 'publish_notification':
+            if collected.get('title'):
+                parts.append(f"发布通知'{collected['title']}'")
+        
+        if parts:
+            return "，".join(parts)
+        return ""
+    
+    def get_missing_params_prompt(self, user_id: int, ask_one_by_one: bool = True) -> str:
+        """
+        获取缺失参数的提示语（逐个询问模式）
+        :param user_id: 用户ID
+        :param ask_one_by_one: 是否逐个询问（True逐个，False一次性列出）
         :return: 提示语
         """
         state = self.get_state(user_id)
@@ -185,15 +260,48 @@ class ConversationState:
         
         missing = state.get('missing_params', [])
         intent = state.get('current_intent', '')
+        collected = state.get('collected_params', {})
         
-        # 根据意图和缺失参数生成提示
-        prompts = []
+        # 逐个询问模式
+        if ask_one_by_one and missing:
+            next_param = self.get_next_missing_param(user_id)
+            if next_param:
+                param_name, param_desc, question = next_param
+                
+                # 生成确认理解的回复
+                if intent == 'create_reservation':
+                    venue = collected.get('venue_name', collected.get('venue_id', '场地'))
+                    progress = self.get_progress_summary(user_id)
+                    if progress:
+                        return f"好的！{progress}。请告诉我{param_desc}{question}？"
+                    else:
+                        return f"好的！您想预约{venue}。请告诉我{param_desc}{question}？"
+                
+                elif intent == 'borrow_book':
+                    book = collected.get('book_title', '图书')
+                    progress = self.get_progress_summary(user_id)
+                    if progress and progress != f"借阅《{book}》":
+                        return f"好的！{progress}。请告诉我{param_desc}{question}？"
+                    else:
+                        return f"好的！您想借阅《{book}》。请告诉我{param_desc}{question}？"
+                
+                elif intent == 'publish_notification':
+                    return f"好的！您想发布通知。请告诉我{param_desc}{question}？"
+                
+                elif intent == 'create_task':
+                    return f"好的！您想创建任务。请告诉我{param_desc}{question}？"
+                
+                else:
+                    return f"好的！请告诉我{param_desc}{question}？"
+        
+        # 一次性列出所有缺失参数（兼容旧模式）
         param_names = {
             'date': '日期（如：明天、后天、2026-04-26）',
             'start_time': '开始时间（如：14:00、下午2点）',
             'end_time': '结束时间（如：16:00、下午4点）',
             'purpose': '用途（如：学习、会议、实验）',
             'venue_id': '场地',
+            'venue': '场地',
             'book_title': '书名',
             'title': '标题',
             'content': '内容',
@@ -202,6 +310,7 @@ class ConversationState:
             'end_date': '截止日期'
         }
         
+        prompts = []
         for param in missing:
             name = param_names.get(param, param)
             prompts.append(f"• {name}")

@@ -1,0 +1,1 @@
+import{a3 as e}from"./index-CrPNHY55.js";const o=()=>e.get("/reservations/venues"),a=()=>e.get("/reservations/"),n=r=>e.post("/reservations/",r),v=(r,s)=>e.post(`/reservations/${r}/approve`,s);export{o as a,v as b,n as c,a as g};

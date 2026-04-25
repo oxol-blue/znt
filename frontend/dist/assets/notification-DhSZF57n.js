@@ -1,0 +1,1 @@
+import{a3 as t}from"./index-CrPNHY55.js";const a=()=>t.get("/notifications/"),i=()=>t.get("/notifications/unread-count"),e=n=>t.post("/notifications/",n),r=n=>t.put(`/notifications/${n}/read`);export{a,e as c,i as g,r as m};

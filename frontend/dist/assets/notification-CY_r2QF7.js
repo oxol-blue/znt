@@ -1,1 +1,0 @@
-import{X as t}from"./index-6ubX7ydL.js";const i=()=>t.get("/notifications/"),a=()=>t.get("/notifications/unread-count"),e=n=>t.post("/notifications/",n),r=n=>t.put(`/notifications/${n}/read`);export{i as a,e as c,a as g,r as m};
